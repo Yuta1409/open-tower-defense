@@ -4,28 +4,31 @@ Dependances FastAPI reutilisables (auth, session DB).
 from uuid import UUID
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Cookie, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from .database import get_session
 from .security import decode_access_token
 from ..models.user import User
 
-bearer_scheme = HTTPBearer()
-
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    access_token: str | None = Cookie(default=None),
     session: Session = Depends(get_session),
 ) -> User:
-    """Valide le JWT Bearer et renvoie l'utilisateur correspondant.
+    """Valide le JWT dans le cookie HttpOnly et renvoie l'utilisateur.
 
-    Leve 401 si le token est invalide, expire ou que l'utilisateur n'existe pas.
+    Leve 401 si le cookie est absent, invalide, expire ou que l'utilisateur
+    n'existe pas.
     """
-    token = credentials.credentials
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Non authentifie",
+        )
+
     try:
-        payload = decode_access_token(token)
+        payload = decode_access_token(access_token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

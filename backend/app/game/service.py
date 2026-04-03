@@ -95,6 +95,19 @@ def place_tower(user_id: UUID, tower_type_id: UUID, x: int, y: int) -> GameSessi
     return gs
 
 
+def remove_tower(user_id: UUID, x: int, y: int) -> GameSession:
+    """Retire une tour et rembourse son coût."""
+    gs = get_state(user_id)
+    try:
+        gs.remove_tower(x, y)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    return gs
+
+
 def next_wave(user_id: UUID) -> dict:
     """Lance la vague suivante et renvoie les resultats."""
     gs = get_state(user_id)
@@ -106,6 +119,14 @@ def next_wave(user_id: UUID) -> dict:
             detail=str(exc),
         )
     return result
+
+
+def add_income(user_id: UUID) -> GameSession:
+    """Ajoute 1 or de revenu passif a la session active."""
+    gs = get_state(user_id)
+    if not gs.is_over:
+        gs.gold += 1
+    return gs
 
 
 def end_game(user_id: UUID, db: Session) -> dict:

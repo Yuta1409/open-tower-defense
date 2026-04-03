@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useApp } from '@/store/AppContext'
-import { login, register, getMe } from '@/api/auth'
+import { login, register } from '@/api/auth'
 import { Button } from '@/components/ui/button'
+import PixelSprite from '@/components/game/PixelSprite'
 
 export default function AuthView() {
   const { dispatch } = useApp()
@@ -20,11 +21,7 @@ export default function AuthView() {
       if (mode === 'register') {
         await register({ pseudo, password })
       }
-      const { access_token, refresh_token } = await login({ pseudo, password })
-      dispatch({ type: 'SET_TOKEN', token: access_token, refreshToken: refresh_token })
-
-      // Fetch user info
-      const user = await getMe()
+      const user = await login({ pseudo, password })
       dispatch({ type: 'SET_USER', user })
       dispatch({ type: 'SET_VIEW', view: 'menu' })
     } catch (err) {
@@ -42,16 +39,16 @@ export default function AuthView() {
           className="font-pixel text-3xl text-[var(--red)] mb-2"
           style={{ textShadow: '0 0 20px rgba(255,34,68,0.8), 0 0 40px rgba(255,34,68,0.4)' }}
         >
-          FILE ROUGE
+          OPEN TOWER DEFENSE
         </h1>
         <p className="font-pixel text-xs text-[var(--text-dim)] mt-4">
           TOWER DEFENSE // 8-BIT EDITION
         </p>
         <div className="mt-3 flex justify-center gap-2">
-          <span className="text-2xl">🏹</span>
-          <span className="text-2xl">⚡</span>
-          <span className="text-2xl">🔮</span>
-          <span className="text-2xl">💣</span>
+          <PixelSprite tile={85} size={24} />
+          <PixelSprite tile={84} size={24} />
+          <PixelSprite tile={108} size={24} />
+          <PixelSprite tile={110} size={24} />
         </div>
       </div>
 
@@ -137,7 +134,7 @@ export default function AuthView() {
       </div>
 
       <p className="mt-6 font-pixel text-[0.4rem] text-[var(--text-dim)]">
-        © 2024 FILE ROUGE // ALL RIGHTS RESERVED
+        © 2024 OPEN TOWER DEFENSE // ALL RIGHTS RESERVED
       </p>
     </div>
   )

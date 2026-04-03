@@ -1,7 +1,6 @@
 import { useApp } from '@/store/AppContext'
 import type { TowerType } from '@/types'
-
-const TOWER_EMOJIS = ['🗼', '🏹', '⚡', '🔮', '💣', '🔫', '🪃', '🎯']
+import PixelSprite, { getTowerTile } from './PixelSprite'
 
 export default function TowerPanel() {
   const { state, dispatch } = useApp()
@@ -29,7 +28,7 @@ export default function TowerPanel() {
       </div>
 
       <div className="flex flex-col gap-2 p-2">
-        {towersRef.map((tower, idx) => {
+        {[...towersRef].sort((a, b) => a.base_cost - b.base_cost).map((tower, idx) => {
           const isSelected = selectedTowerTypeId === tower.id
           const affordable = canAfford(tower)
 
@@ -48,9 +47,9 @@ export default function TowerPanel() {
                 }
               `}
             >
-              {/* Tower emoji + name */}
+              {/* Tower sprite + name */}
               <div className="flex items-center gap-1 mb-1">
-                <span className="text-lg">{TOWER_EMOJIS[idx % TOWER_EMOJIS.length]}</span>
+                <PixelSprite tile={getTowerTile(tower.id, towersRef)} size={24} />
                 <span
                   className={`font-pixel text-[0.4rem] leading-tight ${
                     isSelected ? 'text-[var(--green)]' : 'text-[var(--text)]'

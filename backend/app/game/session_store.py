@@ -53,7 +53,7 @@ class GameSession:
     wave: int = 0
     gold: int = STARTING_GOLD
     score: int = 0
-    lives: int = 20
+    lives: int = 1
     is_over: bool = False
     towers: list[PlacedTower] = field(default_factory=list)
     enemies: list[ActiveEnemy] = field(default_factory=list)
@@ -113,6 +113,20 @@ class GameSession:
         self._occupied.add((x, y))
         return tower
 
+    def remove_tower(self, x: int, y: int) -> PlacedTower:
+        """Retire une tour et rembourse son coût."""
+        if self.is_over:
+            raise ValueError("La partie est terminee")
+        for i, tower in enumerate(self.towers):
+            if tower.x == x and tower.y == y:
+                tt = self._tower_types.get(tower.tower_type_id)
+                if tt:
+                    self.gold += int(tt["base_cost"])
+                self.towers.pop(i)
+                self._occupied.discard((x, y))
+                return tower
+        raise ValueError("Aucune tour a cet emplacement")
+
     # --- Logique de vague --------------------------------------------------
 
     def next_wave(self) -> dict:
@@ -127,27 +141,54 @@ class GameSession:
         wave = self.wave
 
         # --- Spawn des ennemis de la vague ---
-        nb_enemies = 5 + wave * 2
-        spawned: list[ActiveEnemy] = []
-
-        # Selectionner les types d'ennemis pour cette vague.
-        # Les boss apparaissent toutes les 5 vagues.
+        # Les vagues de boss ne spawent qu'un seul ennemi.
         is_boss_wave = (wave % 5 == 0)
-        available = [
-            et for et in self._enemy_types
-            if et["is_boss"] == is_boss_wave or not et["is_boss"]
-        ]
+        nb_enemies = 1 if is_boss_wave else 5 + wave * 2
+        spawned: list[ActiveEnemy] = []
+        # Cles en minuscules pour etre insensible a la casse des noms en DB.
+        _MIN_WAVE: dict[str, int] = {
+            "gobelin":        1,
+            "loup":           1,
+            "squelette":      3,
+            "bandit":         4,
+            "elfe sombre":    5,
+            "orc":            6,
+            "troll":          8,
+            "chevalier noir": 9,
+            "ogre":           11,
+            "dragon":         5,   # boss toutes les 5 vagues
+        }
+
+        def _min_wave(et: dict) -> int:
+            return _MIN_WAVE.get(et["name"].lower().strip(), 99)
+
+        if is_boss_wave:
+            available = [
+                et for et in self._enemy_types
+                if et["is_boss"] and _min_wave(et) <= wave
+            ]
+        else:
+            available = [
+                et for et in self._enemy_types
+                if not et["is_boss"] and _min_wave(et) <= wave
+            ]
+        # Fallback : si aucun ennemi eligible, prendre les basiques (vague 1)
         if not available:
-            available = self._enemy_types
+            available = [
+                et for et in self._enemy_types
+                if not et["is_boss"] and _min_wave(et) <= 1
+            ] or [et for et in self._enemy_types if not et["is_boss"]]
 
         for _ in range(nb_enemies):
             et = random.choice(available)
             base_hp = int(et["life_points"])
             base_speed = float(et["speed"])
 
-            # Formule de difficulte croissante
-            scaled_hp = base_hp * (1 + wave * 0.1)
-            scaled_speed = base_speed * (1 + wave * 0.05)
+            # Difficulte croissante : HP +20% par vague, vitesse +8% par vague
+            scaled_hp = base_hp * (1 + wave * 0.03)
+            # Variation individuelle de vitesse : ±15% pour eviter les groupes synchronises
+            speed_jitter = random.uniform(0.85, 1.15)
+            scaled_speed = base_speed * (1 + wave * 0.01) * speed_jitter
 
             enemy = ActiveEnemy(
                 enemy_type_id=et["id"],
@@ -162,38 +203,32 @@ class GameSession:
             spawned.append(enemy)
 
         # --- Simulation du combat ---
-        # Chaque tour attaque les ennemis a portee.
-        # Simplification : chaque tour attaque N fois (attack_speed) par
-        # « tick » de simulation, et on fait un nombre de ticks egal au
-        # nombre d'ennemis / 2 (plus c'est long, plus les tours tirent).
-        # C'est un modele simplifie -- le vrai calcul se ferait cote client
-        # en temps reel, ici on donne un resultat deterministe.
-        simulation_ticks = max(nb_enemies, 5)
-
-        for _tick in range(simulation_ticks):
-            alive_enemies = [e for e in spawned if e.alive]
-            if not alive_enemies:
-                break
-
+        # Modele physique : chaque tour attaque chaque ennemi en fonction
+        # du temps que cet ennemi passe dans sa portee.
+        #
+        # Nombre d'attaques d'une tour sur un ennemi :
+        #   attacks = attack_speed * (2 * scope / enemy.speed)
+        #
+        # Explication : l'ennemi traverse la portee de la tour en
+        # (2 * scope / speed) unites de temps, pendant lequel la tour
+        # tire attack_speed fois par unite de temps.
+        #
+        # Cela rend le scope ET la vitesse de l'ennemi significatifs :
+        # - ennemi rapide → moins de hits
+        # - grande portee → plus de hits
+        # - cadence elevee → plus de hits
+        for enemy in spawned:
+            total_damage = 0.0
             for tower in self.towers:
-                # Trouver les ennemis a portee (distance euclidienne simplifiee).
-                # Comme on n'a pas de positions d'ennemis sur la grille (le chemin
-                # est cote client), on considere que tous les ennemis sont a portee
-                # d'au moins une tour si elle existe. C'est la simplification
-                # serveur -- le front gere le vrai pathfinding.
-                targets = [e for e in alive_enemies if e.alive]
-                if not targets:
-                    break
+                time_in_scope = (2.0 * tower.scope) / max(enemy.speed, 0.1)
+                attacks = tower.attack_speed * time_in_scope
+                dmg_per_hit = max(tower.damage - enemy.armor, 1)
+                total_damage += attacks * dmg_per_hit
 
-                # La tour attaque le premier ennemi vivant (FIFO).
-                target = targets[0]
-                raw_damage = tower.damage * tower.attack_speed
-                effective_damage = max(raw_damage - target.armor, 1)
-                target.current_hp -= effective_damage
-
-                if target.current_hp <= 0:
-                    target.current_hp = 0
-                    target.alive = False
+            enemy.current_hp = max(0.0, enemy.current_hp - total_damage)
+            if enemy.current_hp <= 0:
+                enemy.current_hp = 0
+                enemy.alive = False
 
         # --- Bilan de la vague ---
         kills: list[dict] = []

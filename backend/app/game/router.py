@@ -11,6 +11,7 @@ from .schemas import (
     GameStartResponse,
     GameStateResponse,
     PlaceTowerRequest,
+    RemoveTowerRequest,
     WaveResultResponse,
     PlacedTowerSchema,
     ActiveEnemySchema,
@@ -84,6 +85,15 @@ def place_tower(
     return _session_to_state(gs)
 
 
+@router.post("/remove-tower", response_model=GameStateResponse)
+def remove_tower(
+    body: RemoveTowerRequest,
+    current_user: User = Depends(get_current_user),
+):
+    gs = service.remove_tower(current_user.id, body.x, body.y)
+    return _session_to_state(gs)
+
+
 @router.post("/next-wave", response_model=WaveResultResponse)
 def next_wave(
     current_user: User = Depends(get_current_user),
@@ -122,6 +132,13 @@ def end_game(
         final_score=result["final_score"],
         wave_reached=result["wave_reached"],
     )
+
+
+@router.post("/income")
+def income(current_user: User = Depends(get_current_user)):
+    """Revenu passif : ajoute 1 or a la session en cours."""
+    gs = service.add_income(current_user.id)
+    return {"gold": gs.gold}
 
 
 @router.get("/state", response_model=GameStateResponse)

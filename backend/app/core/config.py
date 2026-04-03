@@ -20,12 +20,12 @@ DATABASE_URL: str = (
 )
 
 # --- JWT ---
-JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production-use-32-bytes-min!")
 JWT_ALGORITHM: str = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
 REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
 # --- Game defaults ---
-STARTING_GOLD: int = 100
+STARTING_GOLD: int = 150
 MAP_WIDTH: int = 20
 MAP_HEIGHT: int = 15

@@ -8,7 +8,8 @@ import React, {
 } from 'react'
 import { reducer, initialState, type Action } from './reducer'
 import type { AppState } from '../types'
-import { setTokenGetter, setUnauthorizedHandler } from '../api/client'
+import { setUnauthorizedHandler } from '../api/client'
+import { getMe } from '../api/auth'
 
 interface AppContextValue {
   state: AppState
@@ -18,48 +19,27 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState, (init) => {
-    const token = localStorage.getItem('token')
-    const refreshToken = localStorage.getItem('refreshToken')
-    if (token && refreshToken) {
-      return {
-        ...init,
-        token,
-        refreshToken,
-        view: 'menu' as const,
-      }
-    }
-    return init
-  })
+  const [state, dispatch] = useReducer(reducer, initialState)
 
-  const getToken = useCallback(() => state.token, [state.token])
+  // Au montage : vérifie si le cookie est encore valide
+  useEffect(() => {
+    getMe()
+      .then(user => {
+        dispatch({ type: 'SET_USER', user })
+        dispatch({ type: 'SET_VIEW', view: 'menu' })
+      })
+      .catch(() => {
+        // Cookie absent ou expiré → reste sur l'écran d'auth
+      })
+  }, [])
 
   const handleUnauthorized = useCallback(() => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('refreshToken')
     dispatch({ type: 'LOGOUT' })
   }, [])
 
   useEffect(() => {
-    setTokenGetter(getToken)
-  }, [getToken])
-
-  useEffect(() => {
     setUnauthorizedHandler(handleUnauthorized)
   }, [handleUnauthorized])
-
-  useEffect(() => {
-    if (state.token) {
-      localStorage.setItem('token', state.token)
-    } else {
-      localStorage.removeItem('token')
-    }
-    if (state.refreshToken) {
-      localStorage.setItem('refreshToken', state.refreshToken)
-    } else {
-      localStorage.removeItem('refreshToken')
-    }
-  }, [state.token, state.refreshToken])
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

@@ -1,6 +1,7 @@
 import type { WaveResultResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import PixelSprite from './PixelSprite'
 
 interface WaveResultModalProps {
   result: WaveResultResponse
@@ -13,7 +14,7 @@ export default function WaveResultModal({ result, onContinue, onGameOver }: Wave
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60" />
       <div
         className="relative z-10 w-full max-w-md mx-4 animate-slide-in"
       >
@@ -30,7 +31,7 @@ export default function WaveResultModal({ result, onContinue, onGameOver }: Wave
           <div className="text-center mb-6">
             {isGameOver ? (
               <>
-                <div className="text-4xl mb-2">💀</div>
+                <div className="flex justify-center mb-2"><PixelSprite tile={121} size={40} /></div>
                 <h2
                   className="font-pixel text-lg text-[var(--red)]"
                   style={{ textShadow: '0 0 15px rgba(255,34,68,0.7)' }}
@@ -38,12 +39,14 @@ export default function WaveResultModal({ result, onContinue, onGameOver }: Wave
                   GAME OVER
                 </h2>
                 <p className="font-pixel text-[0.5rem] text-[var(--text-dim)] mt-2">
-                  Vos défenses ont été submergées
+                  {result.enemies_passed > 0
+                    ? `${result.enemies_passed} ennemi${result.enemies_passed > 1 ? 's ont' : ' a'} atteint la sortie`
+                    : 'Vos défenses ont été submergées'}
                 </p>
               </>
             ) : (
               <>
-                <div className="text-4xl mb-2">⚔️</div>
+                <div className="flex justify-center mb-2"><PixelSprite tile={87} size={40} /></div>
                 <h2
                   className="font-pixel text-sm text-[var(--green)]"
                   style={{ textShadow: '0 0 15px rgba(0,255,65,0.7)' }}
@@ -114,7 +117,7 @@ export default function WaveResultModal({ result, onContinue, onGameOver }: Wave
                       {kill.enemy_name}
                     </span>
                     <Badge variant="gold" className="text-[0.35rem]">
-                      +{kill.reward} 💰
+                      +{kill.reward_or} 💰
                     </Badge>
                   </div>
                 ))}

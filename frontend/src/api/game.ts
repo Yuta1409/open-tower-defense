@@ -2,14 +2,8 @@ import { apiFetch } from './client'
 import type { GameStateResponse, WaveResultResponse } from '../types'
 
 export interface GameStartResponse {
-  state?: GameStateResponse
-  wave?: number
-  gold?: number
-  score?: number
-  lives?: number
-  towers?: GameStateResponse['towers']
-  enemies?: GameStateResponse['enemies']
-  is_over?: boolean
+  message: string
+  state: GameStateResponse
 }
 
 export interface PlaceTowerRequest {
@@ -24,8 +18,8 @@ export interface GameEndResponse {
   wave_reached: number
 }
 
-export function startGame(): Promise<GameStateResponse> {
-  return apiFetch<GameStateResponse>('/game/start', { method: 'POST' })
+export function startGame(): Promise<GameStartResponse> {
+  return apiFetch<GameStartResponse>('/game/start', { method: 'POST' })
 }
 
 export function placeTower(data: PlaceTowerRequest): Promise<GameStateResponse> {
@@ -45,4 +39,12 @@ export function endGame(): Promise<GameEndResponse> {
 
 export function getGameState(): Promise<GameStateResponse> {
   return apiFetch<GameStateResponse>('/game/state')
+}
+
+export function claimIncome(): Promise<{ gold: number }> {
+  return apiFetch<{ gold: number }>('/game/income', { method: 'POST' })
+}
+
+export function removeTower(data: { x: number; y: number }): Promise<GameStateResponse> {
+  return apiFetch<GameStateResponse>('/game/remove-tower', { method: 'POST', body: data })
 }

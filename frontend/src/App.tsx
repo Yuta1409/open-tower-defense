@@ -5,6 +5,7 @@ import AuthView from '@/components/auth/AuthView'
 import MenuView from '@/components/menu/MenuView'
 import GameView from '@/components/game/GameView'
 import LeaderboardView from '@/components/leaderboard/LeaderboardView'
+import WikiView from '@/components/wiki/WikiView'
 
 export default function App() {
   const { state, dispatch } = useApp()
@@ -34,6 +35,8 @@ export default function App() {
       return <GameView />
     case 'leaderboard':
       return <LeaderboardView />
+    case 'wiki':
+      return <WikiView />
     default:
       return <AuthView />
   }

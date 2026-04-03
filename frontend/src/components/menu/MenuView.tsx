@@ -3,6 +3,8 @@ import { useApp } from '@/store/AppContext'
 import { startGame } from '@/api/game'
 import { getTowerTypes, getEnemyTypes } from '@/api/reference'
 import { getLeaderboard, getMyScores } from '@/api/leaderboard'
+import { logout } from '@/api/auth'
+import PixelSprite from '@/components/game/PixelSprite'
 import { generatePath } from '@/store/reducer'
 import { Button } from '@/components/ui/button'
 
@@ -15,13 +17,13 @@ export default function MenuView() {
     setLoading(true)
     setError(null)
     try {
-      const [gameState, towers, enemies] = await Promise.all([
+      const [gameResponse, towers, enemies] = await Promise.all([
         startGame(),
         state.towersRef.length === 0 ? getTowerTypes() : Promise.resolve(state.towersRef),
         state.enemiesRef.length === 0 ? getEnemyTypes() : Promise.resolve(state.enemiesRef),
       ])
       const path = generatePath(20, 15)
-      dispatch({ type: 'SET_GAME', game: gameState })
+      dispatch({ type: 'SET_GAME', game: gameResponse.state })
       dispatch({ type: 'SET_PATH', path })
       dispatch({ type: 'SET_TOWERS_REF', towers })
       dispatch({ type: 'SET_ENEMIES_REF', enemies })
@@ -39,7 +41,7 @@ export default function MenuView() {
     try {
       const [global, my] = await Promise.all([
         getLeaderboard(),
-        state.token ? getMyScores() : Promise.resolve({ leaderboard: [] }),
+        getMyScores(),
       ])
       dispatch({ type: 'SET_LEADERBOARD', leaderboard: global.leaderboard })
       dispatch({ type: 'SET_MY_SCORES', myScores: my.leaderboard })
@@ -51,9 +53,8 @@ export default function MenuView() {
     }
   }
 
-  function handleLogout() {
-    localStorage.removeItem('token')
-    localStorage.removeItem('refreshToken')
+  async function handleLogout() {
+    await logout().catch(() => {})
     dispatch({ type: 'LOGOUT' })
   }
 
@@ -115,6 +116,15 @@ export default function MenuView() {
         </Button>
 
         <Button
+          variant="default"
+          size="xl"
+          className="w-full"
+          onClick={() => dispatch({ type: 'SET_VIEW', view: 'wiki' })}
+        >
+          📖 ENCYCLOPÉDIE
+        </Button>
+
+        <Button
           variant="red"
           size="xl"
           className="w-full"
@@ -133,12 +143,12 @@ export default function MenuView() {
       )}
 
       {/* Decoration */}
-      <div className="mt-16 flex gap-6 text-3xl opacity-30">
-        <span>🗼</span>
-        <span>👾</span>
-        <span>🔮</span>
-        <span>👾</span>
-        <span>⚡</span>
+      <div className="mt-16 flex gap-6 opacity-30">
+        <PixelSprite tile={87} size={32} />
+        <PixelSprite tile={108} size={32} />
+        <PixelSprite tile={84} size={32} />
+        <PixelSprite tile={110} size={32} />
+        <PixelSprite tile={96} size={32} />
       </div>
     </div>
   )

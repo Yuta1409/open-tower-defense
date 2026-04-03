@@ -12,7 +12,6 @@ import type {
 
 export type Action =
   | { type: 'SET_VIEW'; view: View }
-  | { type: 'SET_TOKEN'; token: string; refreshToken: string }
   | { type: 'SET_USER'; user: User }
   | { type: 'SET_GAME'; game: GameStateResponse | null }
   | { type: 'SET_PATH'; path: PathCell[] }
@@ -24,12 +23,11 @@ export type Action =
   | { type: 'SET_WAVE_RESULT'; result: WaveResultResponse | null }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_LOADING'; loading: boolean }
+  | { type: 'ADD_GOLD'; amount: number }
   | { type: 'LOGOUT' }
 
 export const initialState: AppState = {
   view: 'auth',
-  token: null,
-  refreshToken: null,
   user: null,
   game: null,
   path: [],
@@ -47,13 +45,6 @@ export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_VIEW':
       return { ...state, view: action.view, error: null }
-
-    case 'SET_TOKEN':
-      return {
-        ...state,
-        token: action.token,
-        refreshToken: action.refreshToken,
-      }
 
     case 'SET_USER':
       return { ...state, user: action.user }
@@ -87,6 +78,10 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_LOADING':
       return { ...state, loading: action.loading }
+
+    case 'ADD_GOLD':
+      if (!state.game) return state
+      return { ...state, game: { ...state.game, gold: state.game.gold + action.amount } }
 
     case 'LOGOUT':
       return {

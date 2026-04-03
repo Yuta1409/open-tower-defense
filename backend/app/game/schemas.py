@@ -15,6 +15,11 @@ class PlaceTowerRequest(BaseModel):
     y: int = Field(ge=0, description="Ligne sur la grille")
 
 
+class RemoveTowerRequest(BaseModel):
+    x: int = Field(ge=0, description="Colonne sur la grille")
+    y: int = Field(ge=0, description="Ligne sur la grille")
+
+
 # ---------------------------------------------------------------------------
 # Representations internes exposees en reponse
 # ---------------------------------------------------------------------------

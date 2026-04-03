@@ -1,4 +1,4 @@
-export type View = 'auth' | 'menu' | 'game' | 'leaderboard'
+export type View = 'auth' | 'menu' | 'game' | 'leaderboard' | 'wiki'
 
 export interface User {
   id: string
@@ -40,7 +40,8 @@ export interface GameStateResponse {
 
 export interface EnemyKillDetail {
   enemy_name: string
-  reward: number
+  reward_or: number
+  score_gained: number
 }
 
 export interface WaveResultResponse {
@@ -71,10 +72,10 @@ export interface EnemyType {
   id: string
   name: string
   description: string
-  base_hp: number
+  life_points: number
   speed: number
   armor: number
-  reward: number
+  reward_or: number
   is_boss: boolean
 }
 
@@ -92,8 +93,6 @@ export interface PathCell {
 
 export interface AppState {
   view: View
-  token: string | null
-  refreshToken: string | null
   user: User | null
   game: GameStateResponse | null
   path: PathCell[]

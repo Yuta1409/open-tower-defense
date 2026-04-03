@@ -99,7 +99,7 @@ export default function LeaderboardView() {
             ★ CLASSEMENT ★
           </h1>
           <p className="font-pixel text-[0.4rem] text-[var(--text-dim)] mt-1">
-            FILE ROUGE HALL OF FAME
+            OPEN TOWER DEFENSE HALL OF FAME
           </p>
         </div>
 
