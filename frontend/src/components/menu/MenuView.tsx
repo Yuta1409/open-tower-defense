@@ -69,10 +69,13 @@ export default function MenuView() {
           }}
         >
           <h1 className="font-pixel text-4xl text-[var(--red)] tracking-widest">
-            FILE
+            OPEN
           </h1>
           <h1 className="font-pixel text-4xl text-[var(--red)] tracking-widest">
-            ROUGE
+            TOWER
+          </h1>
+          <h1 className="font-pixel text-4xl text-[var(--red)] tracking-widest">
+            DEFENSE
           </h1>
         </div>
         <p className="font-pixel text-[0.55rem] text-[var(--text-dim)] mt-6 tracking-widest">

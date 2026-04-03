@@ -73,14 +73,13 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
       let dealt = 0
       for (const tower of game.towers) {
         const centerIdx = localTowerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
-        const enterIdx = centerIdx - tower.scope
+        // Clamp pour que la portée ne commence pas avant le début du chemin (index 0)
+        const enterIdx = Math.max(0, centerIdx - tower.scope)
         const exitIdx = centerIdx + tower.scope
         if (pos <= enterIdx) continue
         const fraction = Math.min((pos - enterIdx) / (exitIdx - enterIdx), 1)
-        const timeInScope = (2 * tower.scope) / Math.max(enemy.speed, 0.1)
-        const attacks = tower.attack_speed * timeInScope
-        const dmgPerHit = Math.max(tower.damage - enemy.armor, 1)
-        dealt += fraction * attacks * dmgPerHit
+        const dmg = Math.max(tower.damage - enemy.armor, 1)
+        dealt += fraction * dmg
       }
       return Math.min(dealt, enemy.max_hp - Math.max(enemy.current_hp, 0))
     }
@@ -104,7 +103,7 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
       dieAt: findDieAt(e),
       dead: false,
       diedAt: 0,
-      startDelay: i * 300,
+      startDelay: i * 1500,
     }))
 
     const started = new Set<number>()
@@ -172,13 +171,11 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     }
   }
 
-  // Précalcule l'index de chemin le plus proche pour chaque tour
-  // (utilisé pour l'animation de la HP bar)
+  // Index de chemin le plus proche pour chaque tour (utilisé pour les HP bars)
   const towerPathIdx = new Map<string, number>()
   if (game && path.length > 0) {
     for (const tower of game.towers) {
-      let minDist = Infinity
-      let closest = 0
+      let minDist = Infinity, closest = 0
       path.forEach((cell, idx) => {
         const d = Math.sqrt((cell.x - tower.x) ** 2 + (cell.y - tower.y) ** 2)
         if (d < minDist) { minDist = d; closest = idx }
@@ -187,26 +184,39 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     }
   }
 
-  // Calcule les dégâts déjà infligés à un ennemi selon sa position actuelle.
-  // Utilise la même formule que le backend (attacks = attack_speed * 2*scope / speed).
-  // Pour chaque tour, les dégâts sont appliqués progressivement quand l'ennemi
-  // traverse la zone de portée sur le chemin.
-  function computeDamageDealt(enemy: ActiveEnemy, pos: number): number {
-    if (!game) return 0
-    let dealt = 0
+  // Zone combinée de toutes les tours
+  let firstEnter = Infinity, lastExit = -Infinity
+  if (game) {
     for (const tower of game.towers) {
-      const centerIdx = towerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
-      const enterIdx = centerIdx - tower.scope
-      const exitIdx = centerIdx + tower.scope
-      if (pos <= enterIdx) continue
-      const fraction = Math.min((pos - enterIdx) / (exitIdx - enterIdx), 1)
-      const timeInScope = (2 * tower.scope) / Math.max(enemy.speed, 0.1)
-      const attacks = tower.attack_speed * timeInScope
-      const dmgPerHit = Math.max(tower.damage - enemy.armor, 1)
-      dealt += fraction * attacks * dmgPerHit
+      const center = towerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
+      const enter = Math.max(0, center - tower.scope)
+      const exit = center + tower.scope
+      if (enter < firstEnter) firstEnter = enter
+      if (exit > lastExit) lastExit = exit
     }
-    // Ne pas dépasser les dégâts totaux réels (max_hp - current_hp)
-    return Math.min(dealt, enemy.max_hp - Math.max(enemy.current_hp, 0))
+  }
+
+  // Pourcentage de PV à afficher :
+  // - 100% si l'ennemi n'a pas subi de dégâts (non ciblé)
+  // - 100% avant d'entrer dans la zone des tours
+  // - 100% tant qu'un ennemi prioritaire (idx plus petit) est encore vivant dans la zone
+  //   → ciblage séquentiel : la tour est occupée sur l'ennemi précédent
+  // - Interpolation linéaire de 100% → current_hp% dans la zone une fois ciblé
+  // - current_hp% (ou 0%) après la zone
+  function hpPct(a: AnimEnemy): number {
+    const finalPct = a.dead ? 0 : Math.round((a.enemy.current_hp / a.enemy.max_hp) * 100)
+    if (finalPct === 100 || !game || game.towers.length === 0) return 100
+
+    // Bloquer si un ennemi prioritaire est encore vivant dans la zone
+    const prevInZone = animEnemies.some(
+      e => e.idx < a.idx && !e.dead && e.pos > firstEnter && e.pos < lastExit
+    )
+    if (prevInZone) return 100
+
+    if (a.pos <= firstEnter) return 100
+    if (a.pos >= lastExit) return finalPct
+    const fraction = (a.pos - firstEnter) / (lastExit - firstEnter)
+    return Math.round(100 - fraction * (100 - finalPct))
   }
 
   // Construit la map des ennemis par cellule (plusieurs ennemis par cellule possible)
@@ -278,17 +288,17 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     }
   }
 
-  // --- Lignes d'attaque pulsées au rythme de attack_speed ---
+  // --- Projectiles animés au rythme de attack_speed ---
   const ATTACK_COLORS = [
     '#ff8800', '#ff4400', '#aa44ff', '#ff2244', '#00ccff',
     '#ffffff',  '#ff6600', '#888888', '#88ccff', '#ffd700',
   ]
 
-  interface AttackLine {
+  interface AttackProjectile {
     fromX: number; fromY: number; toX: number; toY: number
-    color: string; firing: boolean
+    color: string; phase: number  // 0 = à la tour, 1 = sur la cible
   }
-  const attackLines: AttackLine[] = []
+  const attackProjectiles: AttackProjectile[] = []
   const firingTowerSet = new Set<string>()
 
   if (game) {
@@ -314,9 +324,16 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
 
       const color = ATTACK_COLORS[ti % ATTACK_COLORS.length]
       const periodMs = 1000 / tower.attack_speed
-      const firing = (now % periodMs) < (periodMs * 0.45)
-      attackLines.push({ fromX: tower.x, fromY: tower.y, toX: cell.x, toY: cell.y, color, firing })
-      if (firing) firingTowerSet.add(`${tower.x},${tower.y}`)
+      const basePhase = (now % periodMs) / periodMs
+
+      // Nombre de projectiles en vol simultané (max 2 pour les tours rapides)
+      const numProjectiles = tower.attack_speed >= 2 ? 2 : 1
+      for (let k = 0; k < numProjectiles; k++) {
+        const phase = (basePhase + k / numProjectiles) % 1
+        attackProjectiles.push({ fromX: tower.x, fromY: tower.y, toX: cell.x, toY: cell.y, color, phase })
+        // Flash de la cellule tour quand le projectile vient d'être tiré (phase proche de 0)
+        if (phase < 0.15) firingTowerSet.add(`${tower.x},${tower.y}`)
+      }
     })
   }
 
@@ -363,8 +380,20 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
           borderColor: allDead ? '#331111' : '#ff2244',
           boxShadow: allDead ? 'none' : '0 0 6px rgba(255,34,68,0.6)',
         }
+        // Tooltip : nom + PV de chaque ennemi vivant dans la cellule
+        const tooltipLines = sorted
+          .filter(a => !a.dead)
+          .map(a => {
+            const hp = Math.round(a.enemy.max_hp * hpPct(a) / 100)
+            return `${a.enemy.enemy_name}: ${hp}/${Math.round(a.enemy.max_hp)} PV`
+          })
+        const tooltip = tooltipLines.join('\n')
+
         content = (
-          <div className="flex flex-col items-center justify-center w-full h-full gap-px relative overflow-hidden">
+          <div
+            className="flex flex-col items-center justify-center w-full h-full relative overflow-hidden"
+            title={tooltip}
+          >
             {/* Sprite du premier ennemi */}
             <PixelSprite
               tile={getEnemyTile(top.enemy)}
@@ -374,27 +403,31 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
             />
             {/* Une HP bar par ennemi vivant */}
             {!allDead && (
-              <div className="flex flex-col gap-px w-full px-0.5">
+              <div className="flex flex-col w-full px-0.5" style={{ gap: 1 }}>
                 {sorted.filter(a => !a.dead).map(a => {
-                  const dmg = computeDamageDealt(a.enemy, a.pos)
-                  const displayed = Math.max(a.enemy.max_hp - dmg, a.enemy.current_hp)
-                  const pct = Math.round((displayed / a.enemy.max_hp) * 100)
+                  const pct = hpPct(a)
+                  const totalBlocks = Math.max(3, Math.min(10, Math.ceil(a.enemy.max_hp / 20)))
+                  const filledBlocks = Math.ceil(pct / 100 * totalBlocks)
+                  const blockColor = pct > 50 ? '#00ff41' : pct > 25 ? '#ffd700' : '#ff2244'
                   return (
-                    <div key={a.idx} className="w-full h-px bg-[#330000] overflow-hidden">
-                      <div
-                        className="h-full transition-none"
-                        style={{
-                          width: `${pct}%`,
-                          backgroundColor: pct > 50 ? '#00ff41' : pct > 25 ? '#ffd700' : '#ff2244',
-                        }}
-                      />
+                    <div key={a.idx} className="w-full flex px-0.5" style={{ gap: 1 }}>
+                      {Array.from({ length: totalBlocks }, (_, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            flex: 1,
+                            height: 3,
+                            backgroundColor: i < filledBlocks ? blockColor : '#1a0000',
+                          }}
+                        />
+                      ))}
                     </div>
                   )
                 })}
               </div>
             )}
             {/* Badge nombre d'ennemis */}
-            {sorted.length > 1 && !allDead && (
+            {sorted.filter(a => !a.dead).length > 1 && (
               <span className="absolute top-0 right-0 font-pixel text-[0.3rem] text-[var(--red)] leading-none bg-black/60 px-px">
                 {sorted.filter(a => !a.dead).length}
               </span>
@@ -461,41 +494,49 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
         {cells}
       </div>
 
-      {/* Overlay SVG : lignes d'attaque des tours */}
-      {attackLines.length > 0 && (
+      {/* Overlay SVG : projectiles animés des tours */}
+      {attackProjectiles.length > 0 && (
         <svg
           className="absolute inset-0 pointer-events-none"
           style={{ width: '100%', height: '100%' }}
           xmlns="http://www.w3.org/2000/svg"
         >
           <defs>
-            <filter id="attack-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <filter id="attack-glow" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="1.2" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
           </defs>
-          {attackLines.map((line, i) => {
-            const x1 = `${((line.fromX + 0.5) / COLS) * 100}%`
-            const y1 = `${((line.fromY + 0.5) / ROWS) * 100}%`
-            const x2 = `${((line.toX + 0.5) / COLS) * 100}%`
-            const y2 = `${((line.toY + 0.5) / ROWS) * 100}%`
-            // Point d'impact sur l'ennemi
-            const mx = `${((line.toX + 0.5) / COLS) * 100}%`
-            const my = `${((line.toY + 0.5) / ROWS) * 100}%`
+          {attackProjectiles.map((proj, i) => {
+            const x1pct = ((proj.fromX + 0.5) / COLS) * 100
+            const y1pct = ((proj.fromY + 0.5) / ROWS) * 100
+            const x2pct = ((proj.toX + 0.5) / COLS) * 100
+            const y2pct = ((proj.toY + 0.5) / ROWS) * 100
+
+            // Position courante du projectile
+            const px = x1pct + (x2pct - x1pct) * proj.phase
+            const py = y1pct + (y2pct - y1pct) * proj.phase
+
+            // Traînée : 15% de la trajectoire derrière le projectile
+            const tailPhase = Math.max(0, proj.phase - 0.15)
+            const tailX = x1pct + (x2pct - x1pct) * tailPhase
+            const tailY = y1pct + (y2pct - y1pct) * tailPhase
+
             return (
-              <g key={i} filter={line.firing ? 'url(#attack-glow)' : undefined} opacity={line.firing ? 1 : 0.15}>
+              <g key={i} filter="url(#attack-glow)">
+                {/* Traînée lumineuse */}
                 <line
-                  x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke={line.color}
-                  strokeWidth={line.firing ? 1.5 : 0.8}
+                  x1={`${tailX}%`} y1={`${tailY}%`}
+                  x2={`${px}%`} y2={`${py}%`}
+                  stroke={proj.color}
+                  strokeWidth={1.2}
+                  opacity={0.55}
                 />
-                {/* Point d'impact uniquement lors du tir */}
-                {line.firing && (
-                  <circle cx={mx} cy={my} r="2.5" fill={line.color} opacity="1" />
-                )}
+                {/* Tête du projectile */}
+                <circle cx={`${px}%`} cy={`${py}%`} r="2" fill={proj.color} opacity="0.95" />
               </g>
             )
           })}

@@ -11,7 +11,6 @@ Ces limites sont acceptables pour un jeu solo non persistant.
 """
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -185,10 +184,10 @@ class GameSession:
             base_speed = float(et["speed"])
 
             # Difficulte croissante : HP +20% par vague, vitesse +8% par vague
-            scaled_hp = base_hp * (1 + wave * 0.03)
+            scaled_hp = base_hp * (1 + wave * 0.20)
             # Variation individuelle de vitesse : ±15% pour eviter les groupes synchronises
             speed_jitter = random.uniform(0.85, 1.15)
-            scaled_speed = base_speed * (1 + wave * 0.01) * speed_jitter
+            scaled_speed = base_speed * (1 + wave * 0.08) * speed_jitter
 
             enemy = ActiveEnemy(
                 enemy_type_id=et["id"],
@@ -203,32 +202,20 @@ class GameSession:
             spawned.append(enemy)
 
         # --- Simulation du combat ---
-        # Modele physique : chaque tour attaque chaque ennemi en fonction
-        # du temps que cet ennemi passe dans sa portee.
-        #
-        # Nombre d'attaques d'une tour sur un ennemi :
-        #   attacks = attack_speed * (2 * scope / enemy.speed)
-        #
-        # Explication : l'ennemi traverse la portee de la tour en
-        # (2 * scope / speed) unites de temps, pendant lequel la tour
-        # tire attack_speed fois par unite de temps.
-        #
-        # Cela rend le scope ET la vitesse de l'ennemi significatifs :
-        # - ennemi rapide → moins de hits
-        # - grande portee → plus de hits
-        # - cadence elevee → plus de hits
-        for enemy in spawned:
-            total_damage = 0.0
-            for tower in self.towers:
-                time_in_scope = (2.0 * tower.scope) / max(enemy.speed, 0.1)
-                attacks = tower.attack_speed * time_in_scope
-                dmg_per_hit = max(tower.damage - enemy.armor, 1)
-                total_damage += attacks * dmg_per_hit
+        # Ciblage sequentiel : chaque tour focus l'ennemi le plus avance (idx 0
+        # en tete), tire dessus jusqu'a sa mort, puis reporte les tirs restants
+        # sur l'ennemi suivant.  Si l'ennemi survit, la tour ne tire pas sur les
+        # suivants (elle est encore occupee a tirer sur lui).
 
-            enemy.current_hp = max(0.0, enemy.current_hp - total_damage)
-            if enemy.current_hp <= 0:
-                enemy.current_hp = 0
-                enemy.alive = False
+        for tower in self.towers:
+            for enemy in spawned:
+                if not enemy.alive:
+                    continue
+                dmg = max(tower.damage - enemy.armor, 1)
+                enemy.current_hp -= dmg
+                if enemy.current_hp <= 0:
+                    enemy.current_hp = 0
+                    enemy.alive = False
 
         # --- Bilan de la vague ---
         kills: list[dict] = []
