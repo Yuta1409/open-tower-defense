@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --surface2: #1a1a2e;
+  --border: #2a2a4a;
+  --path: #1a0505;
+  --path-border: #3d0000;
+  --tower-cell: #0d1f35;
+  --green: #00ff41;
+  --gold: #ffd700;
+  --red: #ff2244;
+  --blue: #4488ff;
+  --purple: #aa44ff;
+  --text: #e0e0ff;
+  --text-dim: #7070a0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Press Start 2P', monospace;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* CRT game area wrapper */
+.crt-screen {
+  position: relative;
+  box-shadow: 0 0 40px rgba(0, 255, 65, 0.15), inset 0 0 80px rgba(0, 0, 0, 0.4);
+}
+
+/* Scanline overlay */
+.crt-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 1px,
+    rgba(0, 0, 0, 0.15) 1px,
+    rgba(0, 0, 0, 0.15) 2px
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Pixel border technique (box-shadow) */
+.pixel-border {
+  box-shadow:
+    0 0 0 2px var(--border),
+    0 0 0 4px var(--bg),
+    0 0 0 6px var(--border);
+}
+
+.pixel-border-green {
+  box-shadow:
+    0 0 0 2px var(--green),
+    0 0 0 4px var(--bg),
+    0 0 0 6px var(--green);
+}
+
+.pixel-border-gold {
+  box-shadow:
+    0 0 0 2px var(--gold),
+    0 0 0 4px var(--bg),
+    0 0 0 6px var(--gold);
+}
+
+.pixel-border-red {
+  box-shadow:
+    0 0 0 2px var(--red),
+    0 0 0 4px var(--bg),
+    0 0 0 6px var(--red);
+}
+
+/* Glow effects */
+.glow-green {
+  filter: drop-shadow(0 0 8px var(--green));
+}
+
+.glow-gold {
+  filter: drop-shadow(0 0 8px var(--gold));
+}
+
+.glow-red {
+  filter: drop-shadow(0 0 8px var(--red));
+}
+
+.glow-blue {
+  filter: drop-shadow(0 0 8px var(--blue));
+}
+
+/* Animations */
+@keyframes flash-green {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(0, 255, 65, 0.2); }
+}
+
+@keyframes flash-red {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(255, 34, 68, 0.2); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(0, 255, 65, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(0, 255, 65, 0.8); }
+}
+
+@keyframes slide-in {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-flash-green {
+  animation: flash-green 0.5s ease-in-out 3;
+}
+
+.animate-flash-red {
+  animation: flash-red 0.5s ease-in-out 3;
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out forwards;
+}
+
+/* Button base reset */
+button {
+  cursor: pointer;
+  font-family: 'Press Start 2P', monospace;
+}
+
+/* Input styling */
+input {
+  font-family: 'Press Start 2P', monospace;
+  background-color: var(--surface2);
+  border: 2px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green);
+}
+
+/* VT323 number display */
+.vt-number {
+  font-family: 'VT323', monospace;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+/* No border-radius on game elements */
+.game-element {
+  border-radius: 0 !important;
+}
