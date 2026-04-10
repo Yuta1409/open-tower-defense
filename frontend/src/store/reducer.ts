@@ -3,7 +3,6 @@ import type {
   View,
   User,
   GameStateResponse,
-  WaveResultResponse,
   TowerType,
   EnemyType,
   ScoreResponse,
@@ -20,7 +19,6 @@ export type Action =
   | { type: 'SET_TOWERS_REF'; towers: TowerType[] }
   | { type: 'SET_ENEMIES_REF'; enemies: EnemyType[] }
   | { type: 'SELECT_TOWER'; towerTypeId: string | null }
-  | { type: 'SET_WAVE_RESULT'; result: WaveResultResponse | null }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'ADD_GOLD'; amount: number }
@@ -36,7 +34,6 @@ export const initialState: AppState = {
   towersRef: [],
   enemiesRef: [],
   selectedTowerTypeId: null,
-  waveResult: null,
   error: null,
   loading: false,
 }
@@ -69,9 +66,6 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'SELECT_TOWER':
       return { ...state, selectedTowerTypeId: action.towerTypeId }
-
-    case 'SET_WAVE_RESULT':
-      return { ...state, waveResult: action.result }
 
     case 'SET_ERROR':
       return { ...state, error: action.error }

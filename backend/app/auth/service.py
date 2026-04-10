@@ -28,6 +28,8 @@ def register_user(
     session: Session,
 ) -> User:
     """Cree un nouvel utilisateur. Leve 409 si le pseudo est deja pris."""
+    pseudo = pseudo.strip()
+
     existing = session.exec(
         select(User).where(User.pseudo == pseudo)
     ).first()
@@ -39,7 +41,7 @@ def register_user(
         )
 
     user = User(
-        pseudo=pseudo.strip(),
+        pseudo=pseudo,
         password_hash=hash_password(password),
     )
     session.add(user)
@@ -79,6 +81,17 @@ def login_user(
     session.commit()
 
     return user, access_token, rt_value
+
+
+def revoke_refresh_token(refresh_token_value: str, session: Session) -> None:
+    """Revoque un refresh token en BDD (utilise lors du logout)."""
+    rt = session.exec(
+        select(RefreshToken).where(RefreshToken.token == refresh_token_value)
+    ).first()
+    if rt is not None and not rt.is_revoke:
+        rt.is_revoke = True
+        session.add(rt)
+        session.commit()
 
 
 def refresh_tokens(

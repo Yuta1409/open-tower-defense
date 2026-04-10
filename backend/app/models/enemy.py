@@ -8,27 +8,9 @@ import sqlalchemy as sa
 
 
 # ---------------------------------------------------------------------------
-# Base schema
-# ---------------------------------------------------------------------------
-class EnemyTypeBase(SQLModel):
-    name: str = Field(max_length=50)
-    description: str = ""
-    life_points: int
-    speed: Decimal = Field(decimal_places=2, max_digits=5)
-    armor: int
-    reward_or: int
-    is_boss: bool = False
-
-
-class EnemyTypeCreate(EnemyTypeBase):
-    """Payload for creating a new enemy type."""
-    pass
-
-
-# ---------------------------------------------------------------------------
 # Table model
 # ---------------------------------------------------------------------------
-class EnemyType(EnemyTypeBase, table=True):
+class EnemyType(SQLModel, table=True):
     __tablename__ = "enemy_type"
 
     id: uuid.UUID = Field(
@@ -79,12 +61,3 @@ class EnemyType(EnemyTypeBase, table=True):
             server_default=text("now()"),
         ),
     )
-
-
-# ---------------------------------------------------------------------------
-# Read schema
-# ---------------------------------------------------------------------------
-class EnemyTypeRead(EnemyTypeBase):
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime

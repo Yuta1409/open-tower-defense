@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -8,6 +10,13 @@ from app.game.router import router as game_router
 from app.leaderboard.router import router as leaderboard_router
 from app.reference.router import router as reference_router
 
+_DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:5174"
+CORS_ORIGINS: list[str] = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if o.strip()
+]
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     connect_to_db()
@@ -17,7 +26,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,

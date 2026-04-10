@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '@/store/AppContext'
 import { placeTower, removeTower } from '@/api/game'
 import type { ActiveEnemy, PlacedTower } from '@/types'
@@ -12,10 +12,11 @@ interface AnimEnemy {
   idx: number
   enemy: ActiveEnemy
   pos: number        // position flottante sur le chemin
-  dieAt: number      // index du chemin où il meurt (path.length+1 si survit)
+  dieAt: number      // index du chemin où il meurt (path.length si survit)
   dead: boolean
   diedAt: number     // timestamp de la mort (0 = pas encore mort)
   startDelay: number // ms avant de commencer à avancer
+  hits: { pos: number; dmg: number }[]  // coups prévisionnels (position + dégâts)
 }
 
 interface Props {
@@ -28,7 +29,21 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
   const { path, game, selectedTowerTypeId, towersRef } = state
 
   const [animEnemies, setAnimEnemies] = useState<AnimEnemy[]>([])
+  const [gridPx, setGridPx] = useState({ w: 0, h: 0 })
+  const gridRef = useRef<HTMLDivElement>(null)
   const animRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Mesure les dimensions réelles de la grille pour aligner le SVG
+  useEffect(() => {
+    const el = gridRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      setGridPx({ w: width, h: height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const prevWaveRef = useRef<number>(-1)
   const goldQueueRef = useRef<number[]>([])
   const onCompleteRef = useRef(onAnimationComplete)
@@ -67,47 +82,60 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
       }
     }
 
-    // Calcule les dégâts cumulés sur un ennemi à une position donnée
-    function localDmg(enemy: ActiveEnemy, pos: number): number {
-      if (!game) return 0
-      let dealt = 0
-      for (const tower of game.towers) {
-        const centerIdx = localTowerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
-        // Clamp pour que la portée ne commence pas avant le début du chemin (index 0)
-        const enterIdx = Math.max(0, centerIdx - tower.scope)
-        const exitIdx = centerIdx + tower.scope
-        if (pos <= enterIdx) continue
-        const fraction = Math.min((pos - enterIdx) / (exitIdx - enterIdx), 1)
-        const dmg = Math.max(tower.damage - enemy.armor, 1)
-        dealt += fraction * dmg
+    // Précalcule les coups que chaque tour inflige à cet ennemi.
+    // Chaque coup se déclenche à la position du centre de la tour, puis
+    // les coups suivants sont espacés selon la vitesse de déplacement et l'attack_speed.
+    function computeHits(enemy: ActiveEnemy): { pos: number; dmg: number }[] {
+      const hits: { pos: number; dmg: number }[] = []
+      let hpLeft = enemy.max_hp
+      for (const tower of game!.towers) {
+        if (hpLeft <= 0) break
+        const towerCenter = localTowerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
+        // Espacement en unités de chemin entre deux tirs consécutifs
+        const pathPerShot = Math.max(
+          (enemy.speed * waveMultiplier * (1000 / TICK_MS)) / tower.attack_speed,
+          0.1
+        )
+        let shotPos = towerCenter
+        while (hpLeft > 0 && shotPos <= towerCenter + tower.scope) {
+          hits.push({ pos: shotPos, dmg: tower.damage })
+          hpLeft -= tower.damage
+          shotPos += pathPerShot
+        }
       }
-      return Math.min(dealt, enemy.max_hp - Math.max(enemy.current_hp, 0))
+      return hits.sort((a, b) => a.pos - b.pos)
     }
 
-    // Trouve la position du chemin où l'ennemi est tué par les tours.
-    // Si l'ennemi survit (current_hp > 0), il marche jusqu'à la sortie (path.length).
-    function findDieAt(enemy: ActiveEnemy): number {
-      if (enemy.alive) return path.length // survit → va jusqu'à la sortie
-      const totalDmg = enemy.max_hp - Math.max(enemy.current_hp, 0)
-      for (let pos = 0; pos <= path.length; pos += 0.25) {
-        if (localDmg(enemy, pos) >= totalDmg * 0.98) return pos
-      }
-      return path.length
+    // Trouve la position de mort : dernier coup fatal.
+    function findDieAt(enemy: ActiveEnemy, hits: { pos: number; dmg: number }[]): number {
+      if (enemy.alive) return path.length
+      const lastHit = hits[hits.length - 1]
+      return lastHit ? lastHit.pos : path.length
     }
 
     // Prépare les ennemis animés — TOUS les ennemis, vivants ou non
-    const anim: AnimEnemy[] = enemies.map((e, i) => ({
-      idx: i,
-      enemy: e,
-      pos: 0,
-      dieAt: findDieAt(e),
-      dead: false,
-      diedAt: 0,
-      startDelay: i * 1500,
-    }))
+    // Délais cumulatifs aléatoires : chaque ennemi spawn entre 600ms et 2000ms après le précédent
+    let cumulativeDelay = 0
+    const anim: AnimEnemy[] = enemies.map((e, i) => {
+      const startDelay = cumulativeDelay
+      if (i < enemies.length - 1) cumulativeDelay += 600 + Math.random() * 1400
+      const hits = computeHits(e)
+      return {
+        idx: i,
+        enemy: e,
+        pos: 0,
+        dieAt: findDieAt(e, hits),
+        dead: false,
+        diedAt: 0,
+        startDelay,
+        hits,
+      }
+    })
 
     const started = new Set<number>()
     const startTime = Date.now()
+    // Ref to track latest anim state for side-effect checks outside updater
+    const latestAnimRef: { current: AnimEnemy[] } = { current: anim }
 
     setAnimEnemies(anim)
 
@@ -135,23 +163,27 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
           return { ...a, pos: newPos }
         })
 
-        // Vérifie si tous les ennemis ont fini (démarrés + morts ou en fin)
-        const allStarted = started.size === prev.length
-        const allDone = allStarted && next.every(a => a.dead || a.pos >= a.dieAt)
-
-        if (allDone) {
-          clearInterval(animRef.current!)
-          animRef.current = null
-          setTimeout(() => onCompleteRef.current(), 400)
-        }
-
+        // Store latest state for side-effect check below (pure — no effects here)
+        latestAnimRef.current = next
         return next
       })
+
+      // Side effects OUTSIDE the updater to avoid double-firing in StrictMode
 
       // Dispatcher le gold gagné par les ennemis morts ce tick
       while (goldQueueRef.current.length > 0) {
         const amount = goldQueueRef.current.shift()!
         dispatch({ type: 'ADD_GOLD', amount })
+      }
+
+      // Vérifie si tous les ennemis ont fini (démarrés + morts ou en fin)
+      const allStarted = started.size === enemies.length
+      const allDone = allStarted && latestAnimRef.current.every(a => a.dead || a.pos >= a.dieAt)
+
+      if (allDone) {
+        clearInterval(animRef.current!)
+        animRef.current = null
+        setTimeout(() => onCompleteRef.current(), 400)
       }
     }, TICK_MS)
 
@@ -171,52 +203,14 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     }
   }
 
-  // Index de chemin le plus proche pour chaque tour (utilisé pour les HP bars)
-  const towerPathIdx = new Map<string, number>()
-  if (game && path.length > 0) {
-    for (const tower of game.towers) {
-      let minDist = Infinity, closest = 0
-      path.forEach((cell, idx) => {
-        const d = Math.sqrt((cell.x - tower.x) ** 2 + (cell.y - tower.y) ** 2)
-        if (d < minDist) { minDist = d; closest = idx }
-      })
-      towerPathIdx.set(`${tower.x},${tower.y}`, closest)
-    }
-  }
-
-  // Zone combinée de toutes les tours
-  let firstEnter = Infinity, lastExit = -Infinity
-  if (game) {
-    for (const tower of game.towers) {
-      const center = towerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
-      const enter = Math.max(0, center - tower.scope)
-      const exit = center + tower.scope
-      if (enter < firstEnter) firstEnter = enter
-      if (exit > lastExit) lastExit = exit
-    }
-  }
-
-  // Pourcentage de PV à afficher :
-  // - 100% si l'ennemi n'a pas subi de dégâts (non ciblé)
-  // - 100% avant d'entrer dans la zone des tours
-  // - 100% tant qu'un ennemi prioritaire (idx plus petit) est encore vivant dans la zone
-  //   → ciblage séquentiel : la tour est occupée sur l'ennemi précédent
-  // - Interpolation linéaire de 100% → current_hp% dans la zone une fois ciblé
-  // - current_hp% (ou 0%) après la zone
+  // HP affiché = max_hp moins les dégâts des coups déjà touchés (pos du coup <= pos actuelle).
+  // Chaque coup est discret : la barre saute du montant exact du damage, comme dans LoL.
   function hpPct(a: AnimEnemy): number {
-    const finalPct = a.dead ? 0 : Math.round((a.enemy.current_hp / a.enemy.max_hp) * 100)
-    if (finalPct === 100 || !game || game.towers.length === 0) return 100
-
-    // Bloquer si un ennemi prioritaire est encore vivant dans la zone
-    const prevInZone = animEnemies.some(
-      e => e.idx < a.idx && !e.dead && e.pos > firstEnter && e.pos < lastExit
-    )
-    if (prevInZone) return 100
-
-    if (a.pos <= firstEnter) return 100
-    if (a.pos >= lastExit) return finalPct
-    const fraction = (a.pos - firstEnter) / (lastExit - firstEnter)
-    return Math.round(100 - fraction * (100 - finalPct))
+    if (a.dead) return 0
+    const dmgDealt = a.hits
+      .filter(h => h.pos <= a.pos)
+      .reduce((sum, h) => sum + h.dmg, 0)
+    return Math.max(0, Math.round((a.enemy.max_hp - dmgDealt) / a.enemy.max_hp * 100))
   }
 
   // Construit la map des ennemis par cellule (plusieurs ennemis par cellule possible)
@@ -234,17 +228,20 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     enemyCellMap.get(key)!.push(a)
   }
 
+  const arrowMap = useMemo(() => {
+    const m = new Map<string, string>()
+    path.forEach((cell, idx) => {
+      if (idx >= path.length - 1) return
+      const next = path[idx + 1]
+      const dx = next.x - cell.x
+      const dy = next.y - cell.y
+      m.set(`${cell.x},${cell.y}`, dx > 0 ? '→' : dx < 0 ? '←' : dy > 0 ? '↓' : '↑')
+    })
+    return m
+  }, [path])
+
   function getPathArrow(x: number, y: number): string {
-    const idx = path.findIndex(p => p.x === x && p.y === y)
-    if (idx < 0 || idx >= path.length - 1) return '→'
-    const next = path[idx + 1]
-    const dx = next.x - x
-    const dy = next.y - y
-    if (dx > 0) return '→'
-    if (dx < 0) return '←'
-    if (dy > 0) return '↓'
-    if (dy < 0) return '↑'
-    return '→'
+    return arrowMap.get(`${x},${y}`) ?? '→'
   }
 
   async function handleCellClick(x: number, y: number) {
@@ -288,53 +285,33 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     }
   }
 
-  // --- Projectiles animés au rythme de attack_speed ---
-  const ATTACK_COLORS = [
-    '#ff8800', '#ff4400', '#aa44ff', '#ff2244', '#00ccff',
-    '#ffffff',  '#ff6600', '#888888', '#88ccff', '#ffd700',
-  ]
-
-  interface AttackProjectile {
-    fromX: number; fromY: number; toX: number; toY: number
-    color: string; phase: number  // 0 = à la tour, 1 = sur la cible
-  }
-  const attackProjectiles: AttackProjectile[] = []
+  // --- Tirs : une ligne SVG par tour vers sa cible ---
+  interface Shot { fromX: number; fromY: number; toX: number; toY: number; attackSpeed: number }
+  const shots: Shot[] = []
   const firingTowerSet = new Set<string>()
 
-  if (game) {
-    game.towers.forEach((tower, ti) => {
-      // Cible prioritaire : ennemi le plus avancé dans la portée
-      let target: AnimEnemy | null = null
-      for (const a of animEnemies) {
-        if (a.dead) continue
-        const cellIdx = Math.min(Math.floor(a.pos), path.length - 1)
-        const cell = path[cellIdx]
-        if (!cell) continue
-        const dx = tower.x - cell.x
-        const dy = tower.y - cell.y
-        if (Math.sqrt(dx * dx + dy * dy) <= tower.scope) {
-          if (!target || a.pos > target.pos) target = a
-        }
-      }
-      if (!target) return
+  if (game && animEnemies.length > 0) {
+    for (const tower of game.towers) {
+      const target = [...animEnemies]
+        .filter(a => !a.dead)
+        .sort((a, b) => b.pos - a.pos)
+        .find(a => {
+          const cellIdx = Math.min(Math.floor(a.pos), path.length - 1)
+          const cell = path[cellIdx]
+          return cell
+            ? Math.sqrt((tower.x - cell.x) ** 2 + (tower.y - cell.y) ** 2) <= tower.scope
+            : false
+        })
+      if (!target) continue
 
+      // Cible : la cellule où le sprite ennemi est rendu (Math.floor = même logique qu'enemyCellMap)
       const cellIdx = Math.min(Math.floor(target.pos), path.length - 1)
       const cell = path[cellIdx]
-      if (!cell) return
+      if (!cell) continue
 
-      const color = ATTACK_COLORS[ti % ATTACK_COLORS.length]
-      const periodMs = 1000 / tower.attack_speed
-      const basePhase = (now % periodMs) / periodMs
-
-      // Nombre de projectiles en vol simultané (max 2 pour les tours rapides)
-      const numProjectiles = tower.attack_speed >= 2 ? 2 : 1
-      for (let k = 0; k < numProjectiles; k++) {
-        const phase = (basePhase + k / numProjectiles) % 1
-        attackProjectiles.push({ fromX: tower.x, fromY: tower.y, toX: cell.x, toY: cell.y, color, phase })
-        // Flash de la cellule tour quand le projectile vient d'être tiré (phase proche de 0)
-        if (phase < 0.15) firingTowerSet.add(`${tower.x},${tower.y}`)
-      }
-    })
+      shots.push({ fromX: tower.x, fromY: tower.y, toX: cell.x, toY: cell.y, attackSpeed: tower.attack_speed })
+      firingTowerSet.add(`${tower.x},${tower.y}`)
+    }
   }
 
   const cells = []
@@ -401,26 +378,22 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
               grayscale={allDead}
               style={{ cursor: 'default', flexShrink: 0 }}
             />
-            {/* Une HP bar par ennemi vivant */}
+            {/* Barre de vie continue par ennemi vivant */}
             {!allDead && (
               <div className="flex flex-col w-full px-0.5" style={{ gap: 1 }}>
                 {sorted.filter(a => !a.dead).map(a => {
                   const pct = hpPct(a)
-                  const totalBlocks = Math.max(3, Math.min(10, Math.ceil(a.enemy.max_hp / 20)))
-                  const filledBlocks = Math.ceil(pct / 100 * totalBlocks)
-                  const blockColor = pct > 50 ? '#00ff41' : pct > 25 ? '#ffd700' : '#ff2244'
+                  const barColor = pct > 50 ? '#00ff41' : pct > 25 ? '#ffd700' : '#ff2244'
                   return (
-                    <div key={a.idx} className="w-full flex px-0.5" style={{ gap: 1 }}>
-                      {Array.from({ length: totalBlocks }, (_, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            flex: 1,
-                            height: 3,
-                            backgroundColor: i < filledBlocks ? blockColor : '#1a0000',
-                          }}
-                        />
-                      ))}
+                    <div key={a.idx} className="w-full px-0.5">
+                      <div style={{ width: '100%', height: 3, backgroundColor: '#1a0000' }}>
+                        <div style={{
+                          width: `${pct}%`,
+                          height: '100%',
+                          backgroundColor: barColor,
+                          transition: 'width 120ms linear, background-color 200ms',
+                        }} />
+                      </div>
                     </div>
                   )
                 })}
@@ -483,6 +456,7 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     >
       {/* Grille */}
       <div
+        ref={gridRef}
         style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${COLS}, 1fr)`,
@@ -494,50 +468,37 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
         {cells}
       </div>
 
-      {/* Overlay SVG : projectiles animés des tours */}
-      {attackProjectiles.length > 0 && (
+      {/* Overlay SVG : lignes de tir.
+          viewBox en pixels réels mesurés par ResizeObserver → 1 unité SVG = 1 px CSS,
+          ce qui garantit l'alignement exact avec les cellules de la grille. */}
+      {shots.length > 0 && gridPx.w > 0 && (
         <svg
           className="absolute inset-0 pointer-events-none"
+          viewBox={`0 0 ${gridPx.w} ${gridPx.h}`}
           style={{ width: '100%', height: '100%' }}
           xmlns="http://www.w3.org/2000/svg"
         >
-          <defs>
-            <filter id="attack-glow" x="-100%" y="-100%" width="300%" height="300%">
-              <feGaussianBlur stdDeviation="1.2" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          {attackProjectiles.map((proj, i) => {
-            const x1pct = ((proj.fromX + 0.5) / COLS) * 100
-            const y1pct = ((proj.fromY + 0.5) / ROWS) * 100
-            const x2pct = ((proj.toX + 0.5) / COLS) * 100
-            const y2pct = ((proj.toY + 0.5) / ROWS) * 100
-
-            // Position courante du projectile
-            const px = x1pct + (x2pct - x1pct) * proj.phase
-            const py = y1pct + (y2pct - y1pct) * proj.phase
-
-            // Traînée : 15% de la trajectoire derrière le projectile
-            const tailPhase = Math.max(0, proj.phase - 0.15)
-            const tailX = x1pct + (x2pct - x1pct) * tailPhase
-            const tailY = y1pct + (y2pct - y1pct) * tailPhase
-
+          <style>{`
+            @keyframes shot-flash {
+              0%   { opacity: 1;   }
+              20%  { opacity: 0.7; }
+              100% { opacity: 0;   }
+            }
+          `}</style>
+          {shots.map((s, i) => {
+            const cw = gridPx.w / COLS
+            const ch = gridPx.h / ROWS
             return (
-              <g key={i} filter="url(#attack-glow)">
-                {/* Traînée lumineuse */}
-                <line
-                  x1={`${tailX}%`} y1={`${tailY}%`}
-                  x2={`${px}%`} y2={`${py}%`}
-                  stroke={proj.color}
-                  strokeWidth={1.2}
-                  opacity={0.55}
-                />
-                {/* Tête du projectile */}
-                <circle cx={`${px}%`} cy={`${py}%`} r="2" fill={proj.color} opacity="0.95" />
-              </g>
+              <line
+                key={i}
+                x1={(s.fromX + 0.5) * cw}
+                y1={(s.fromY + 0.5) * ch}
+                x2={(s.toX + 0.5) * cw}
+                y2={(s.toY + 0.5) * ch}
+                stroke="#00ccff"
+                strokeWidth={2}
+                style={{ animation: `shot-flash ${Math.round(1000 / s.attackSpeed)}ms ease-in infinite` }}
+              />
             )
           })}
         </svg>

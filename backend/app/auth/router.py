@@ -84,8 +84,14 @@ def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response):
-    """Efface les cookies d'authentification."""
+def logout(
+    response: Response,
+    refresh_token: str | None = Cookie(default=None),
+    session: Session = Depends(get_session),
+):
+    """Efface les cookies d'authentification et revoque le refresh token en BDD."""
+    if refresh_token:
+        service.revoke_refresh_token(refresh_token, session)
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
 

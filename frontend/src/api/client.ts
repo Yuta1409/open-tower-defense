@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 let onUnauthorized: (() => void) | null = null
 
@@ -27,7 +27,16 @@ interface RequestOptions {
   noAuth?: boolean
 }
 
-export async function apiFetch<T>(
+function parseResponseBody<T>(response: Response): Promise<T> {
+  // 204 No Content or empty body — valid for void responses
+  if (response.status === 204) return Promise.resolve(undefined as T)
+  return response.text().then(text => {
+    if (!text) return undefined as T
+    return JSON.parse(text) as T
+  })
+}
+
+export async function apiFetch<T = void>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
@@ -54,9 +63,7 @@ export async function apiFetch<T>(
         const data = await retry.json().catch(() => ({})) as Record<string, string>
         throw new Error(data.detail || data.message || `HTTP ${retry.status}`)
       }
-      const text = await retry.text()
-      if (!text) return undefined as unknown as T
-      return JSON.parse(text) as T
+      return parseResponseBody<T>(retry)
     } else {
       if (onUnauthorized) onUnauthorized()
       throw new Error('Session expirée')
@@ -72,7 +79,5 @@ export async function apiFetch<T>(
     throw new Error(message)
   }
 
-  const text = await response.text()
-  if (!text) return undefined as unknown as T
-  return JSON.parse(text) as T
+  return parseResponseBody<T>(response)
 }

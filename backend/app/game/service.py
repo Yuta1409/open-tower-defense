@@ -4,6 +4,7 @@ Service metier du jeu.
 Orchestre les sessions en memoire et les acces BDD (types de tours/ennemis,
 sauvegarde du score).
 """
+import time
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -122,10 +123,25 @@ def next_wave(user_id: UUID) -> dict:
 
 
 def add_income(user_id: UUID) -> GameSession:
-    """Ajoute 1 or de revenu passif a la session active."""
+    """Ajoute 1 or de revenu passif a la session active.
+
+    Impose un cooldown minimum de 10 secondes entre deux appels.
+    """
+    from .session_store import _INCOME_COOLDOWN_SECONDS
+
     gs = get_state(user_id)
-    if not gs.is_over:
-        gs.gold += 1
+    if gs.is_over:
+        return gs
+
+    now = time.monotonic()
+    if (now - gs.last_income_at) < _INCOME_COOLDOWN_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Income cooldown: attendez 10 secondes entre chaque appel",
+        )
+
+    gs.gold += 1
+    gs.last_income_at = now
     return gs
 
 

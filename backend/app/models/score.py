@@ -7,16 +7,6 @@ import sqlalchemy as sa
 
 
 # ---------------------------------------------------------------------------
-# Create schema
-# ---------------------------------------------------------------------------
-class GameScoreCreate(SQLModel):
-    """Payload for recording a new game score."""
-    id_user: uuid.UUID
-    score: int
-    wave_reached: int
-
-
-# ---------------------------------------------------------------------------
 # Table model
 # ---------------------------------------------------------------------------
 class GameScore(SQLModel, table=True):
@@ -52,14 +42,3 @@ class GameScore(SQLModel, table=True):
             server_default=text("now()"),
         ),
     )
-
-
-# ---------------------------------------------------------------------------
-# Read schema
-# ---------------------------------------------------------------------------
-class GameScoreRead(SQLModel):
-    id: uuid.UUID
-    id_user: uuid.UUID
-    score: int
-    wave_reached: int
-    play_at: datetime

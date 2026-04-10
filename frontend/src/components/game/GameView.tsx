@@ -29,6 +29,7 @@ export default function GameView() {
   const { state, dispatch } = useApp()
   const [waveResult, setWaveResult] = useState<WaveResultResponse | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [countdownTotal, setCountdownTotal] = useState(30)
   const [showEnemyInfo, setShowEnemyInfo] = useState(false)
   const pendingResult = useRef<WaveResultResponse | null>(null)
   const countdownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -36,7 +37,10 @@ export default function GameView() {
   // Démarre le compte à rebours avant la prochaine vague.
   // Durée : 30s au départ, -5s toutes les 5 vagues, minimum 5s.
   function startCountdown() {
-    setCountdown(30)
+    const wave = state.game?.wave ?? 0
+    const waveDuration = Math.max(5, 30 - Math.floor(wave / 5) * 5)
+    setCountdownTotal(waveDuration)
+    setCountdown(waveDuration)
   }
 
   // Décrémente le compte à rebours chaque seconde, lance la vague à 0
@@ -90,7 +94,6 @@ export default function GameView() {
 
   function handleWaveResult(result: WaveResultResponse) {
     pendingResult.current = result
-    dispatch({ type: 'SET_WAVE_RESULT', result })
   }
 
   function handleAnimationComplete() {
@@ -104,7 +107,6 @@ export default function GameView() {
 
   function handleContinue() {
     setWaveResult(null)
-    dispatch({ type: 'SET_WAVE_RESULT', result: null })
     // Démarrer le compte à rebours pour la vague suivante
     startCountdown()
   }
@@ -113,7 +115,6 @@ export default function GameView() {
     setWaveResult(null)
     setCountdown(null)
     if (countdownRef.current) clearTimeout(countdownRef.current)
-    dispatch({ type: 'SET_WAVE_RESULT', result: null })
     dispatch({ type: 'SET_GAME', game: null })
     dispatch({ type: 'SET_PATH', path: [] })
     dispatch({ type: 'SELECT_TOWER', towerTypeId: null })
@@ -175,7 +176,7 @@ export default function GameView() {
           <div className="w-32 h-1 bg-[var(--border)] overflow-hidden">
             <div
               className="h-full bg-[var(--blue)] transition-all duration-1000"
-              style={{ width: `${(countdown / 30) * 100}%` }}
+              style={{ width: `${(countdown / countdownTotal) * 100}%` }}
             />
           </div>
           <p className="font-vt text-xl text-[var(--blue)]">{countdown}s</p>

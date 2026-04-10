@@ -12,11 +12,17 @@ Ces limites sont acceptables pour un jeu solo non persistant.
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID
 
 from ..core.config import MAP_HEIGHT, MAP_WIDTH, STARTING_GOLD
+
+# Duree maximale d'inactivite d'une session (en secondes) : 2 heures
+_SESSION_TTL_SECONDS: int = 2 * 60 * 60
+# Cooldown minimum entre deux appels a income (en secondes)
+_INCOME_COOLDOWN_SECONDS: float = 10.0
 
 
 @dataclass
@@ -56,6 +62,10 @@ class GameSession:
     is_over: bool = False
     towers: list[PlacedTower] = field(default_factory=list)
     enemies: list[ActiveEnemy] = field(default_factory=list)
+
+    # Timestamps pour TTL et cooldown income
+    created_at: float = field(default_factory=time.monotonic)
+    last_income_at: float = 0.0
 
     # Donnees de reference chargees depuis la BDD au demarrage de la partie.
     # Indexees par UUID pour un acces rapide.
@@ -211,11 +221,18 @@ class GameSession:
             for enemy in spawned:
                 if not enemy.alive:
                     continue
+                # Temps que l'ennemi passe dans la portee de la tour
+                time_in_range = (tower.scope * 2) / max(enemy.speed, 0.1)
+                # Nombre de tirs possibles pendant ce temps
+                shots = max(1, int(tower.attack_speed * time_in_range))
+                # Degats effectifs apres reduction d'armure (minimum 1)
                 dmg = max(tower.damage - enemy.armor, 1)
-                enemy.current_hp -= dmg
-                if enemy.current_hp <= 0:
-                    enemy.current_hp = 0
-                    enemy.alive = False
+                for _ in range(shots):
+                    if not enemy.alive:
+                        break
+                    enemy.current_hp -= dmg
+                    if enemy.current_hp <= 0:
+                        enemy.alive = False
 
         # --- Bilan de la vague ---
         kills: list[dict] = []
@@ -273,12 +290,26 @@ def get_session(user_id: UUID) -> GameSession | None:
     return _sessions.get(user_id)
 
 
+def _cleanup_stale_sessions() -> None:
+    """Supprime les sessions inactives depuis plus de 2 heures."""
+    now = time.monotonic()
+    stale = [
+        uid for uid, gs in _sessions.items()
+        if (now - gs.created_at) > _SESSION_TTL_SECONDS
+    ]
+    for uid in stale:
+        del _sessions[uid]
+
+
 def create_session(user_id: UUID, tower_types: list, enemy_types: list) -> GameSession:
     """Cree une nouvelle session de jeu pour un utilisateur.
 
     Si une session existait deja, elle est ecrasee (on recommence).
     tower_types et enemy_types sont des listes de dicts issues de la BDD.
     """
+    # Nettoyer les sessions expirees a chaque creation
+    _cleanup_stale_sessions()
+
     tt_dict = {t["id"]: t for t in tower_types}
 
     gs = GameSession(

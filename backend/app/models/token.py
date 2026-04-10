@@ -7,16 +7,6 @@ import sqlalchemy as sa
 
 
 # ---------------------------------------------------------------------------
-# Create schema
-# ---------------------------------------------------------------------------
-class RefreshTokenCreate(SQLModel):
-    """Payload used when issuing a new refresh token."""
-    id_user: uuid.UUID
-    token: str = Field(max_length=512)
-    expired_at: datetime
-
-
-# ---------------------------------------------------------------------------
 # Table model
 # ---------------------------------------------------------------------------
 class RefreshToken(SQLModel, table=True):
@@ -57,15 +47,3 @@ class RefreshToken(SQLModel, table=True):
         default=False,
         sa_column=Column(sa.Boolean, nullable=False, server_default=text("false")),
     )
-
-
-# ---------------------------------------------------------------------------
-# Read schema
-# ---------------------------------------------------------------------------
-class RefreshTokenRead(SQLModel):
-    id: uuid.UUID
-    id_user: uuid.UUID
-    token: str
-    expired_at: datetime
-    created_at: datetime
-    is_revoke: bool

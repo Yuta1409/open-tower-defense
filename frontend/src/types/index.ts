@@ -101,7 +101,6 @@ export interface AppState {
   towersRef: TowerType[]
   enemiesRef: EnemyType[]
   selectedTowerTypeId: string | null
-  waveResult: WaveResultResponse | null
   error: string | null
   loading: boolean
 }

@@ -168,7 +168,7 @@ export default function LeaderboardView() {
       {/* Back to game */}
       <div className="flex justify-center mt-6">
         <Button variant="green" size="lg" onClick={handleBack}>
-          ▶ NOUVELLE PARTIE
+          ← RETOUR AU MENU
         </Button>
       </div>
     </div>

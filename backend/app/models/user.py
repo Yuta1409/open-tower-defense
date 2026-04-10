@@ -8,25 +8,9 @@ import sqlalchemy as sa
 
 
 # ---------------------------------------------------------------------------
-# Base / Create schema (no id, no server-generated fields)
-# ---------------------------------------------------------------------------
-class UserBase(SQLModel):
-    pseudo: str = Field(
-        max_length=30,
-        sa_column_kwargs={"nullable": False},
-        schema_extra={"description": "Display name, unique across the platform"},
-    )
-
-
-class UserCreate(UserBase):
-    """Payload received when creating a new user."""
-    password_hash: str = Field(max_length=255)
-
-
-# ---------------------------------------------------------------------------
 # Table model (source of truth for DDL)
 # ---------------------------------------------------------------------------
-class User(UserBase, table=True):
+class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: uuid.UUID = Field(
@@ -65,13 +49,3 @@ class User(UserBase, table=True):
         default=None,
         sa_column=Column(sa.DateTime(timezone=True), nullable=True),
     )
-
-
-# ---------------------------------------------------------------------------
-# Read / response schema
-# ---------------------------------------------------------------------------
-class UserRead(UserBase):
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
-    supprime_le: Optional[datetime] = None

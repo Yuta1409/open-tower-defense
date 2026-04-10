@@ -8,27 +8,9 @@ import sqlalchemy as sa
 
 
 # ---------------------------------------------------------------------------
-# Base schema
-# ---------------------------------------------------------------------------
-class TowerTypeBase(SQLModel):
-    name: str = Field(max_length=50)
-    description: str = ""
-    base_damage: int
-    basic_scope: Decimal = Field(decimal_places=2, max_digits=5)
-    basic_attack_speed: Decimal = Field(decimal_places=2, max_digits=5)
-    base_cost: int
-    max_level: int = 5
-
-
-class TowerTypeCreate(TowerTypeBase):
-    """Payload for creating a new tower type."""
-    pass
-
-
-# ---------------------------------------------------------------------------
 # Table model
 # ---------------------------------------------------------------------------
-class TowerType(TowerTypeBase, table=True):
+class TowerType(SQLModel, table=True):
     __tablename__ = "tower_type"
 
     id: uuid.UUID = Field(
@@ -79,12 +61,3 @@ class TowerType(TowerTypeBase, table=True):
             server_default=text("now()"),
         ),
     )
-
-
-# ---------------------------------------------------------------------------
-# Read schema
-# ---------------------------------------------------------------------------
-class TowerTypeRead(TowerTypeBase):
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
