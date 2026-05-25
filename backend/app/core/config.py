@@ -13,16 +13,23 @@ load_dotenv(find_dotenv())
 logger = logging.getLogger("uvicorn.error")
 
 # --- Database ---
-DB_USER: str = os.getenv("DB_USER", "postgres")
-DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
-DB_HOST: str = os.getenv("DB_HOST", "localhost")
-DB_PORT: str = os.getenv("DB_PORT", "5432")
-DB_NAME: str = os.getenv("DB_NAME", "postgres")
-
-DATABASE_URL: str = (
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    "?sslmode=require"
-)
+_database_url_env: str | None = os.getenv("DATABASE_URL")
+if _database_url_env:
+    if _database_url_env.startswith("postgres://"):
+        _database_url_env = _database_url_env.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif _database_url_env.startswith("postgresql://"):
+        _database_url_env = _database_url_env.replace("postgresql://", "postgresql+psycopg2://", 1)
+    DATABASE_URL: str = _database_url_env
+else:
+    DB_USER: str = os.getenv("DB_USER", "postgres")
+    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_PORT: str = os.getenv("DB_PORT", "5432")
+    DB_NAME: str = os.getenv("DB_NAME", "postgres")
+    DATABASE_URL = (
+        f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        "?sslmode=require"
+    )
 
 # --- JWT ---
 _jwt_secret_env: str | None = os.getenv("JWT_SECRET")

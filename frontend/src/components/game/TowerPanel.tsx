@@ -28,7 +28,7 @@ export default function TowerPanel() {
       </div>
 
       <div className="flex flex-col gap-2 p-2">
-        {[...towersRef].sort((a, b) => a.base_cost - b.base_cost).map((tower, idx) => {
+        {[...towersRef].sort((a, b) => a.base_cost - b.base_cost).map((tower) => {
           const isSelected = selectedTowerTypeId === tower.id
           const affordable = canAfford(tower)
 

@@ -95,7 +95,7 @@ export default function WikiView() {
                 </tr>
               </thead>
               <tbody>
-                {sortedTowers.map((tower, i) => (
+                {sortedTowers.map((tower) => (
                   <tr
                     key={tower.id}
                     className="border-b border-[var(--border)] hover:bg-[rgba(68,136,255,0.05)] transition-colors"

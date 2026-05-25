@@ -1,6 +1,5 @@
 .venv/
 __pycache__/
-*.env
 .DS_Store
 .idea/
 .vscode/
@@ -10,3 +9,4 @@ dist/
 build/
 .env
 package-lock.json
+.fastapicloud/
