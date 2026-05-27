@@ -17,7 +17,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-TABLES = ['tower_type', 'enemy_type', 'game_score', 'refresh_token', '"user"']
+TABLES = ['tower_type', 'enemy_type', 'game_score', 'refresh_token', 'users']
 
 
 def upgrade() -> None:
