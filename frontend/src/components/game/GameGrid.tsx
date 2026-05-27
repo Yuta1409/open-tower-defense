@@ -86,20 +86,25 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     // Chaque coup se déclenche à la position du centre de la tour, puis
     // les coups suivants sont espacés selon la vitesse de déplacement et l'attack_speed.
     function computeHits(enemy: ActiveEnemy): { pos: number; dmg: number }[] {
+      // Source de verite : degats totaux a infliger = ce que le backend a calcule.
+      // Si l'ennemi est vivant a la fin, current_hp > 0 et on ne descend jamais a 0.
+      // Si mort, on inflige exactement max_hp degats repartis sur les hits.
+      const totalDamageToDeal = Math.max(0, enemy.max_hp - enemy.current_hp)
       const hits: { pos: number; dmg: number }[] = []
-      let hpLeft = enemy.max_hp
+      let damageDealt = 0
       for (const tower of game!.towers) {
-        if (hpLeft <= 0) break
+        if (damageDealt >= totalDamageToDeal) break
         const towerCenter = localTowerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
-        // Espacement en unités de chemin entre deux tirs consécutifs
         const pathPerShot = Math.max(
           (enemy.speed * waveMultiplier * (1000 / TICK_MS)) / tower.attack_speed,
           0.1
         )
+        const dmg = Math.max(tower.damage - enemy.armor, 1)
         let shotPos = towerCenter
-        while (hpLeft > 0 && shotPos <= towerCenter + tower.scope) {
-          hits.push({ pos: shotPos, dmg: tower.damage })
-          hpLeft -= tower.damage
+        while (damageDealt < totalDamageToDeal && shotPos <= towerCenter + tower.scope) {
+          const actualDmg = Math.min(dmg, totalDamageToDeal - damageDealt)
+          hits.push({ pos: shotPos, dmg: actualDmg })
+          damageDealt += actualDmg
           shotPos += pathPerShot
         }
       }
