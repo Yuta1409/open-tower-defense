@@ -20,8 +20,8 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="lax",
-        secure=False,        # passer a True en production (HTTPS)
+        samesite="none",
+        secure=True,
         max_age=_ACCESS_MAX_AGE,
         path="/",
     )
@@ -29,8 +29,8 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite="none",
+        secure=True,
         max_age=_REFRESH_MAX_AGE,
         path="/",
     )
@@ -92,8 +92,8 @@ def logout(
     """Efface les cookies d'authentification et revoque le refresh token en BDD."""
     if refresh_token:
         service.revoke_refresh_token(refresh_token, session)
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
+    response.delete_cookie("access_token", path="/", samesite="none", secure=True)
+    response.delete_cookie("refresh_token", path="/", samesite="none", secure=True)
 
 
 @router.get("/me", response_model=UserResponse)
