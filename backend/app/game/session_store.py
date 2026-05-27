@@ -184,19 +184,29 @@ class GameSession:
             )
             spawned.append(enemy)
 
+        # Combat : chaque tour a un budget total de tirs pour la vague,
+        # mutualise sur tous les ennemis qui passent dans sa portee.
+        # La tour reste focalisee sur le premier ennemi vivant jusqu'a le tuer,
+        # puis enchaine sur le suivant tant qu'il lui reste des tirs.
         for tower in self.towers:
+            total_time_in_range = sum(
+                (tower.scope * 2) / max(e.speed, 0.1)
+                for e in spawned
+            )
+            shots_remaining = max(1, int(tower.attack_speed * total_time_in_range))
+
             for enemy in spawned:
+                if shots_remaining <= 0:
+                    break
                 if not enemy.alive:
                     continue
-                time_in_range = (tower.scope * 2) / max(enemy.speed, 0.1)
-                shots = max(1, int(tower.attack_speed * time_in_range))
                 dmg = max(tower.damage - enemy.armor, 1)
-                for _ in range(shots):
-                    if not enemy.alive:
-                        break
+                while shots_remaining > 0 and enemy.alive:
                     enemy.current_hp -= dmg
+                    shots_remaining -= 1
                     if enemy.current_hp <= 0:
                         enemy.alive = False
+                        break
 
         kills: list[dict] = []
         gold_earned = 0

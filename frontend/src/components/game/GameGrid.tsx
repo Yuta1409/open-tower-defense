@@ -86,12 +86,12 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
     // Chaque coup se déclenche à la position du centre de la tour, puis
     // les coups suivants sont espacés selon la vitesse de déplacement et l'attack_speed.
     function computeHits(enemy: ActiveEnemy): { pos: number; dmg: number }[] {
-      // Source de verite : degats totaux a infliger = ce que le backend a calcule.
-      // Si l'ennemi est vivant a la fin, current_hp > 0 et on ne descend jamais a 0.
-      // Si mort, on inflige exactement max_hp degats repartis sur les hits.
+      // Source de verite : degats totaux a infliger = max_hp - current_hp renvoye par le backend.
+      // Garantit que la somme des hits == exactement la perte de PV reelle.
       const totalDamageToDeal = Math.max(0, enemy.max_hp - enemy.current_hp)
       const hits: { pos: number; dmg: number }[] = []
       let damageDealt = 0
+
       for (const tower of game!.towers) {
         if (damageDealt >= totalDamageToDeal) break
         const towerCenter = localTowerPathIdx.get(`${tower.x},${tower.y}`) ?? 0
@@ -108,6 +108,23 @@ export default function GameGrid({ onAnimationComplete, canRemoveTower }: Props)
           shotPos += pathPerShot
         }
       }
+
+      // Filet de securite : si les portees n'ont pas suffi a placer tous les degats,
+      // on repartit le reste en hits supplementaires sur la derniere tour disponible
+      // (chacun cape a `dmg` pour rester realiste). Garantit damageDealt == totalDamageToDeal.
+      if (damageDealt < totalDamageToDeal && game!.towers.length > 0) {
+        const lastTower = game!.towers[game!.towers.length - 1]
+        const lastCenter = localTowerPathIdx.get(`${lastTower.x},${lastTower.y}`) ?? 0
+        const lastDmg = Math.max(lastTower.damage - enemy.armor, 1)
+        let extraPos = lastCenter + lastTower.scope
+        while (damageDealt < totalDamageToDeal) {
+          const actualDmg = Math.min(lastDmg, totalDamageToDeal - damageDealt)
+          hits.push({ pos: extraPos, dmg: actualDmg })
+          damageDealt += actualDmg
+          extraPos += 0.5
+        }
+      }
+
       return hits.sort((a, b) => a.pos - b.pos)
     }
 
