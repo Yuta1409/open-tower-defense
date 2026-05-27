@@ -12,8 +12,6 @@ from app.reference.router import router as reference_router
 
 origins = [
     "http://localhost:5173",
-    "http://localhost:5174",
-    "https://yuta1409.github.io/open-tower-defense/",
 ]
 
 CORS_ORIGINS: list[str] = [
