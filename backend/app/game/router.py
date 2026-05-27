@@ -75,12 +75,14 @@ def start_game(
 def place_tower(
     body: PlaceTowerRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ):
     gs = service.place_tower(
         user_id=current_user.id,
         tower_type_id=body.tower_type_id,
         x=body.x,
         y=body.y,
+        db=db,
     )
     return _session_to_state(gs)
 
@@ -89,17 +91,19 @@ def place_tower(
 def remove_tower(
     body: RemoveTowerRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ):
-    gs = service.remove_tower(current_user.id, body.x, body.y)
+    gs = service.remove_tower(current_user.id, body.x, body.y, db)
     return _session_to_state(gs)
 
 
 @router.post("/next-wave", response_model=WaveResultResponse)
 def next_wave(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ):
-    result = service.next_wave(current_user.id)
-    gs = service.get_state(current_user.id)
+    result = service.next_wave(current_user.id, db)
+    gs = service.get_state(current_user.id, db)
     return WaveResultResponse(
         wave_number=result["wave_number"],
         enemies_spawned=result["enemies_spawned"],
@@ -135,15 +139,19 @@ def end_game(
 
 
 @router.post("/income")
-def income(current_user: User = Depends(get_current_user)):
+def income(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
     """Revenu passif : ajoute 1 or a la session en cours."""
-    gs = service.add_income(current_user.id)
+    gs = service.add_income(current_user.id, db)
     return {"gold": gs.gold}
 
 
 @router.get("/state", response_model=GameStateResponse)
 def get_state(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ):
-    gs = service.get_state(current_user.id)
+    gs = service.get_state(current_user.id, db)
     return _session_to_state(gs)

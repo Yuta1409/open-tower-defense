@@ -1,23 +1,24 @@
 """
-Stockage en memoire des sessions de jeu actives.
+Stockage persistant des sessions de jeu (table game_session, JSONB).
 
 Chaque utilisateur ne peut avoir qu'une seule session active a la fois.
-Le dictionnaire est indexe par user_id (UUID).
-
-Limites connues :
-- Les sessions sont perdues si le serveur redemarre.
-- Pas de partage entre instances (single-process uniquement).
-Ces limites sont acceptables pour un jeu solo non persistant.
+L'etat est persiste en DB afin de survivre aux redemarrages et de fonctionner
+correctement en multi-replicas.
 """
 from __future__ import annotations
 
 import random
 import time
 from dataclasses import dataclass, field
-from decimal import Decimal
+from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlmodel import Session, select
+
 from ..core.config import MAP_HEIGHT, MAP_WIDTH, STARTING_GOLD
+from ..models.game_session import GameSessionRow
+from ..models.tower import TowerType
+from ..models.enemy import EnemyType
 
 # Duree maximale d'inactivite d'une session (en secondes) : 2 heures
 _SESSION_TTL_SECONDS: int = 2 * 60 * 60
@@ -63,38 +64,22 @@ class GameSession:
     towers: list[PlacedTower] = field(default_factory=list)
     enemies: list[ActiveEnemy] = field(default_factory=list)
 
-    # Timestamps pour TTL et cooldown income
-    created_at: float = field(default_factory=time.monotonic)
+    created_at: float = field(default_factory=time.time)
     last_income_at: float = 0.0
 
-    # Donnees de reference chargees depuis la BDD au demarrage de la partie.
-    # Indexees par UUID pour un acces rapide.
     _tower_types: dict = field(default_factory=dict, repr=False)
     _enemy_types: list = field(default_factory=list, repr=False)
-
-    # Grille d'occupation : set de (x, y) occupes par des tours.
     _occupied: set = field(default_factory=set, repr=False)
 
     # --- Placement de tour ------------------------------------------------
 
     def place_tower(self, tower_type_id: UUID, x: int, y: int) -> PlacedTower:
-        """Place une tour sur la grille.
-
-        Leve ValueError si :
-        - La partie est terminee
-        - Les coordonnees sont hors grille
-        - La case est deja occupee
-        - Le type de tour n'existe pas
-        - L'or est insuffisant
-        """
         if self.is_over:
             raise ValueError("La partie est terminee")
-
         if x < 0 or x >= MAP_WIDTH or y < 0 or y >= MAP_HEIGHT:
             raise ValueError(
                 f"Coordonnees hors grille (max {MAP_WIDTH-1}, {MAP_HEIGHT-1})"
             )
-
         if (x, y) in self._occupied:
             raise ValueError("Case deja occupee")
 
@@ -123,7 +108,6 @@ class GameSession:
         return tower
 
     def remove_tower(self, x: int, y: int) -> PlacedTower:
-        """Retire une tour et rembourse son coût."""
         if self.is_over:
             raise ValueError("La partie est terminee")
         for i, tower in enumerate(self.towers):
@@ -139,22 +123,15 @@ class GameSession:
     # --- Logique de vague --------------------------------------------------
 
     def next_wave(self) -> dict:
-        """Lance la vague suivante et simule le combat.
-
-        Renvoie un dictionnaire avec les resultats de la vague.
-        """
         if self.is_over:
             raise ValueError("La partie est terminee")
 
         self.wave += 1
         wave = self.wave
 
-        # --- Spawn des ennemis de la vague ---
-        # Les vagues de boss ne spawent qu'un seul ennemi.
         is_boss_wave = (wave % 5 == 0)
         nb_enemies = 1 if is_boss_wave else 5 + wave * 2
         spawned: list[ActiveEnemy] = []
-        # Cles en minuscules pour etre insensible a la casse des noms en DB.
         _MIN_WAVE: dict[str, int] = {
             "gobelin":        1,
             "loup":           1,
@@ -165,7 +142,7 @@ class GameSession:
             "troll":          8,
             "chevalier noir": 9,
             "ogre":           11,
-            "dragon":         5,   # boss toutes les 5 vagues
+            "dragon":         5,
         }
 
         def _min_wave(et: dict) -> int:
@@ -181,7 +158,6 @@ class GameSession:
                 et for et in self._enemy_types
                 if not et["is_boss"] and _min_wave(et) <= wave
             ]
-        # Fallback : si aucun ennemi eligible, prendre les basiques (vague 1)
         if not available:
             available = [
                 et for et in self._enemy_types
@@ -192,10 +168,7 @@ class GameSession:
             et = random.choice(available)
             base_hp = int(et["life_points"])
             base_speed = float(et["speed"])
-
-            # Difficulte croissante : HP +20% par vague, vitesse +8% par vague
             scaled_hp = base_hp * (1 + wave * 0.20)
-            # Variation individuelle de vitesse : ±15% pour eviter les groupes synchronises
             speed_jitter = random.uniform(0.85, 1.15)
             scaled_speed = base_speed * (1 + wave * 0.08) * speed_jitter
 
@@ -211,21 +184,12 @@ class GameSession:
             )
             spawned.append(enemy)
 
-        # --- Simulation du combat ---
-        # Ciblage sequentiel : chaque tour focus l'ennemi le plus avance (idx 0
-        # en tete), tire dessus jusqu'a sa mort, puis reporte les tirs restants
-        # sur l'ennemi suivant.  Si l'ennemi survit, la tour ne tire pas sur les
-        # suivants (elle est encore occupee a tirer sur lui).
-
         for tower in self.towers:
             for enemy in spawned:
                 if not enemy.alive:
                     continue
-                # Temps que l'ennemi passe dans la portee de la tour
                 time_in_range = (tower.scope * 2) / max(enemy.speed, 0.1)
-                # Nombre de tirs possibles pendant ce temps
                 shots = max(1, int(tower.attack_speed * time_in_range))
-                # Degats effectifs apres reduction d'armure (minimum 1)
                 dmg = max(tower.damage - enemy.armor, 1)
                 for _ in range(shots):
                     if not enemy.alive:
@@ -234,7 +198,6 @@ class GameSession:
                     if enemy.current_hp <= 0:
                         enemy.alive = False
 
-        # --- Bilan de la vague ---
         kills: list[dict] = []
         gold_earned = 0
         score_earned = 0
@@ -251,14 +214,11 @@ class GameSession:
                     "score_gained": score_per_kill,
                 })
             else:
-                # Ennemi survivant : perd une vie
                 enemies_passed += 1
                 self.lives -= 1
 
         self.gold += gold_earned
         self.score += score_earned
-
-        # Stocker les ennemis restants pour l'etat
         self.enemies = spawned
 
         is_game_over = self.lives <= 0
@@ -280,46 +240,193 @@ class GameSession:
 
 
 # ---------------------------------------------------------------------------
-# Store global en memoire
+# Reference data (tower_types / enemy_types) — chargees a chaque requete
 # ---------------------------------------------------------------------------
 
-_sessions: dict[UUID, GameSession] = {}
-
-
-def get_session(user_id: UUID) -> GameSession | None:
-    return _sessions.get(user_id)
-
-
-def _cleanup_stale_sessions() -> None:
-    """Supprime les sessions inactives depuis plus de 2 heures."""
-    now = time.monotonic()
-    stale = [
-        uid for uid, gs in _sessions.items()
-        if (now - gs.created_at) > _SESSION_TTL_SECONDS
+def _load_tower_types(db: Session) -> list[dict]:
+    rows = db.exec(select(TowerType)).all()
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "base_damage": t.base_damage,
+            "basic_scope": float(t.basic_scope),
+            "basic_attack_speed": float(t.basic_attack_speed),
+            "base_cost": t.base_cost,
+            "max_level": t.max_level,
+        }
+        for t in rows
     ]
-    for uid in stale:
-        del _sessions[uid]
 
 
-def create_session(user_id: UUID, tower_types: list, enemy_types: list) -> GameSession:
-    """Cree une nouvelle session de jeu pour un utilisateur.
+def _load_enemy_types(db: Session) -> list[dict]:
+    rows = db.exec(select(EnemyType)).all()
+    return [
+        {
+            "id": e.id,
+            "name": e.name,
+            "description": e.description,
+            "life_points": e.life_points,
+            "speed": float(e.speed),
+            "armor": e.armor,
+            "reward_or": e.reward_or,
+            "is_boss": e.is_boss,
+        }
+        for e in rows
+    ]
 
-    Si une session existait deja, elle est ecrasee (on recommence).
-    tower_types et enemy_types sont des listes de dicts issues de la BDD.
-    """
-    # Nettoyer les sessions expirees a chaque creation
-    _cleanup_stale_sessions()
 
-    tt_dict = {t["id"]: t for t in tower_types}
+# ---------------------------------------------------------------------------
+# Serialisation <-> JSONB
+# ---------------------------------------------------------------------------
 
+def _to_dict(gs: GameSession) -> dict:
+    return {
+        "wave": gs.wave,
+        "gold": gs.gold,
+        "score": gs.score,
+        "lives": gs.lives,
+        "is_over": gs.is_over,
+        "towers": [
+            {
+                "tower_type_id": str(t.tower_type_id),
+                "tower_name": t.tower_name,
+                "x": t.x,
+                "y": t.y,
+                "damage": t.damage,
+                "scope": t.scope,
+                "attack_speed": t.attack_speed,
+                "level": t.level,
+            }
+            for t in gs.towers
+        ],
+        "enemies": [
+            {
+                "enemy_type_id": str(e.enemy_type_id),
+                "enemy_name": e.enemy_name,
+                "current_hp": e.current_hp,
+                "max_hp": e.max_hp,
+                "speed": e.speed,
+                "armor": e.armor,
+                "reward_or": e.reward_or,
+                "is_boss": e.is_boss,
+                "alive": e.alive,
+            }
+            for e in gs.enemies
+        ],
+        "created_at": gs.created_at,
+        "last_income_at": gs.last_income_at,
+    }
+
+
+def _from_dict(
+    user_id: UUID,
+    data: dict,
+    tower_types: list,
+    enemy_types: list,
+) -> GameSession:
+    towers = [
+        PlacedTower(
+            tower_type_id=UUID(t["tower_type_id"]),
+            tower_name=t["tower_name"],
+            x=t["x"],
+            y=t["y"],
+            damage=t["damage"],
+            scope=t["scope"],
+            attack_speed=t["attack_speed"],
+            level=t.get("level", 1),
+        )
+        for t in data.get("towers", [])
+    ]
+    enemies = [
+        ActiveEnemy(
+            enemy_type_id=UUID(e["enemy_type_id"]),
+            enemy_name=e["enemy_name"],
+            current_hp=e["current_hp"],
+            max_hp=e["max_hp"],
+            speed=e["speed"],
+            armor=e["armor"],
+            reward_or=e["reward_or"],
+            is_boss=e["is_boss"],
+            alive=e.get("alive", True),
+        )
+        for e in data.get("enemies", [])
+    ]
+    return GameSession(
+        user_id=user_id,
+        wave=data.get("wave", 0),
+        gold=data.get("gold", STARTING_GOLD),
+        score=data.get("score", 0),
+        lives=data.get("lives", 1),
+        is_over=data.get("is_over", False),
+        towers=towers,
+        enemies=enemies,
+        created_at=data.get("created_at", time.time()),
+        last_income_at=data.get("last_income_at", 0.0),
+        _tower_types={t["id"]: t for t in tower_types},
+        _enemy_types=enemy_types,
+        _occupied={(t.x, t.y) for t in towers},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Store API — appele depuis service.py
+# ---------------------------------------------------------------------------
+
+def get_session(user_id: UUID, db: Session) -> GameSession | None:
+    """Charge la session depuis la DB. Retourne None si pas de partie."""
+    row = db.exec(
+        select(GameSessionRow).where(GameSessionRow.user_id == user_id)
+    ).first()
+    if row is None:
+        return None
+    # TTL: supprimer si trop ancienne
+    created_at = row.data.get("created_at", 0.0)
+    if (time.time() - created_at) > _SESSION_TTL_SECONDS:
+        db.delete(row)
+        db.commit()
+        return None
+    tower_types = _load_tower_types(db)
+    enemy_types = _load_enemy_types(db)
+    return _from_dict(user_id, row.data, tower_types, enemy_types)
+
+
+def create_session(user_id: UUID, tower_types: list, enemy_types: list, db: Session) -> GameSession:
+    """Cree (ou ecrase) la session du joueur."""
     gs = GameSession(
         user_id=user_id,
-        _tower_types=tt_dict,
+        _tower_types={t["id"]: t for t in tower_types},
         _enemy_types=enemy_types,
     )
-    _sessions[user_id] = gs
+    save_session(gs, db)
     return gs
 
 
-def remove_session(user_id: UUID) -> GameSession | None:
-    return _sessions.pop(user_id, None)
+def save_session(gs: GameSession, db: Session) -> None:
+    """Persiste l'etat de la session."""
+    row = db.exec(
+        select(GameSessionRow).where(GameSessionRow.user_id == gs.user_id)
+    ).first()
+    payload = _to_dict(gs)
+    if row is None:
+        row = GameSessionRow(user_id=gs.user_id, data=payload)
+        db.add(row)
+    else:
+        row.data = payload
+        row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def remove_session(user_id: UUID, db: Session) -> GameSession | None:
+    """Supprime la session active si elle existe. Retourne l'ancienne session ou None."""
+    gs = get_session(user_id, db)
+    if gs is None:
+        return None
+    row = db.exec(
+        select(GameSessionRow).where(GameSessionRow.user_id == user_id)
+    ).first()
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return gs

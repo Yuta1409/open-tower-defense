@@ -26,7 +26,7 @@ load_dotenv(find_dotenv())
 # ---------------------------------------------------------------------------
 # Import every model so SQLModel.metadata is populated
 # ---------------------------------------------------------------------------
-from app.models import User, RefreshToken, TowerType, EnemyType, GameScore  # noqa: F401, E402
+from app.models import User, RefreshToken, TowerType, EnemyType, GameScore, GameSessionRow  # noqa: F401, E402
 
 # ---------------------------------------------------------------------------
 # Alembic Config object

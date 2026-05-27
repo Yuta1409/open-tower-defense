@@ -3,6 +3,7 @@ from .token import RefreshToken
 from .tower import TowerType
 from .enemy import EnemyType
 from .score import GameScore
+from .game_session import GameSessionRow
 
 __all__ = [
     "User",
@@ -10,4 +11,5 @@ __all__ = [
     "TowerType",
     "EnemyType",
     "GameScore",
+    "GameSessionRow",
 ]
