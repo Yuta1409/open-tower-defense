@@ -10,10 +10,15 @@ from app.game.router import router as game_router
 from app.leaderboard.router import router as leaderboard_router
 from app.reference.router import router as reference_router
 
-_DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:5174"
+origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://yuta1409.github.io/open-tower-defense/",
+]
+
 CORS_ORIGINS: list[str] = [
     o.strip()
-    for o in os.getenv("CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    for o in os.getenv("CORS_ORIGINS", ",".join(origins)).split(",")
     if o.strip()
 ]
 
@@ -21,6 +26,8 @@ CORS_ORIGINS: list[str] = [
 async def lifespan(app: FastAPI):
     connect_to_db()
     yield
+
+
 
 app = FastAPI(lifespan=lifespan)
 
